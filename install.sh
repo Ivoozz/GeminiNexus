@@ -6,23 +6,33 @@ echo "🚀 Start installatie van GeminiNexus op Debian LXC..."
 # 1. Check if running as root
 if [ "$EUID" -ne 0 ]; then 
   echo "❌ Fout: Voer dit script uit als root (sudo) om de autostart service aan te maken."
-  exit
+  exit 1
 fi
 
+# Functie om te wachten op APT lock
+wait_for_apt_lock() {
+    echo "⏳ Wachten op APT lock (andere installaties)..."
+    while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || fuser /var/lib/apt/lists/lock >/dev/null 2>&1 || fuser /var/lib/dpkg/lock >/dev/null 2>&1; do
+        sleep 1
+    done
+    echo "✅ APT lock vrijgegeven."
+}
+
 # 2. Systeem pakketten installeren
+wait_for_apt_lock
 echo "📦 Systeem updaten en afhankelijkheden installeren..."
-apt update && apt install -y python3-pip python3-venv git curl
+apt update && apt install -y python3-pip python3-venv git curl psmisc
 
 # 3. Project ophalen
 INSTALL_DIR=$(pwd)
 if [ ! -d "GeminiNexus" ]; then
     echo "📂 Project bestanden ophalen van GitHub..."
     git clone https://github.com/Ivoozz/GeminiNexus.git
-    cd GeminiNexus || exit
+    cd GeminiNexus || exit 1
     INSTALL_DIR=$(pwd)
 else
     echo "📂 GeminiNexus map bestaat al, we gaan verder in deze map..."
-    cd GeminiNexus || exit
+    cd GeminiNexus || exit 1
     INSTALL_DIR=$(pwd)
 fi
 
