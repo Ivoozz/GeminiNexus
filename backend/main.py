@@ -15,10 +15,14 @@ import subprocess
 # Load environment variables
 load_dotenv()
 
-# Configuration
-SECRET_KEY = os.getenv("SECRET_KEY", "een-super-geheim-token-voor-jwt-12345")
+# Configuration (Strict security)
+SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = "HS256"
 PASSWORD_HASH = os.getenv("PASSWORD_HASH")
+
+if not SECRET_KEY or not PASSWORD_HASH:
+    print("❌ CRITICAL ERROR: SECRET_KEY or PASSWORD_HASH is missing in .env")
+    print("Run the install.sh script to configure security correctly.")
 
 # Setup hashing & security
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -26,7 +30,7 @@ security = HTTPBearer()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("GeminiNexus")
 
-app = FastAPI(title="GeminiNexus API")
+app = FastAPI(title="GeminiNexus AI Assistant")
 
 # Serve static files (frontend)
 frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
@@ -61,7 +65,7 @@ async def root():
 @app.post("/api/login")
 async def login(request: LoginRequest):
     if not PASSWORD_HASH:
-        raise HTTPException(status_code=500, detail="Server configuratie fout: geen wachtwoord ingesteld.")
+        raise HTTPException(status_code=500, detail="Server niet correct geconfigureerd.")
     
     if verify_password(request.password, PASSWORD_HASH):
         token = create_access_token(data={"sub": "admin"})
@@ -71,7 +75,7 @@ async def login(request: LoginRequest):
 
 @app.post("/api/chat")
 async def chat(request: ChatRequest, user: dict = Depends(get_current_user)):
-    logger.info(f"Chat request received: {request.message[:50]}...")
+    logger.info(f"Chat request: {request.message[:50]}...")
     ai_response = ask_gemini(request.message)
     return {"response": ai_response}
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# GeminiNexus Absolute Installer
+# GeminiNexus Fully Autonomous Installer
 echo "🚀 Start installatie van GeminiNexus op Debian LXC..."
 
 # 1. Root check
@@ -9,9 +9,13 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-# 2. Bepaal installatiepad (standaard in de huidige map, in een submap GeminiNexus)
-BASE_DIR=$(pwd)
-INSTALL_DIR="$BASE_DIR/GeminiNexus"
+# 2. Bepaal de juiste installatie map
+CURRENT_DIR_NAME=$(basename "$(pwd)")
+if [ "$CURRENT_DIR_NAME" == "GeminiNexus" ]; then
+    INSTALL_DIR=$(pwd)
+else
+    INSTALL_DIR="$(pwd)/GeminiNexus"
+fi
 
 # Functie om te wachten op APT lock
 wait_for_apt_lock() {
@@ -30,34 +34,52 @@ apt update && apt install -y python3-pip python3-venv git curl psmisc
 if [ ! -d "$INSTALL_DIR" ]; then
     echo "📂 Project downloaden van GitHub naar $INSTALL_DIR..."
     git clone https://github.com/Ivoozz/GeminiNexus.git "$INSTALL_DIR" || { echo "❌ Git clone mislukt!"; exit 1; }
-else
-    echo "📂 Project bestaat al in $INSTALL_DIR, we halen de nieuwste versie op..."
     cd "$INSTALL_DIR" || exit 1
+else
+    if [ "$CURRENT_DIR_NAME" != "GeminiNexus" ]; then
+        cd "$INSTALL_DIR" || exit 1
+    fi
+    echo "📂 Map bestaat al. Laatste wijzigingen ophalen..."
     git fetch --all && git reset --hard origin/main
 fi
-
-# Ga naar de projectmap
-cd "$INSTALL_DIR" || { echo "❌ Kan de projectmap niet betreden!"; exit 1; }
-echo "📍 Huidige map: $(pwd)"
 
 # 5. Python omgeving opzetten
 echo "🐍 Python virtual environment aanmaken..."
 python3 -m venv venv
 source venv/bin/activate
-
-echo "📦 Python pakketten installeren..."
 pip install --upgrade pip
-if [ -f "requirements.txt" ]; then
-    pip install -r requirements.txt
-else
-    echo "❌ FOUT: requirements.txt niet gevonden in $(pwd)!"
-    exit 1
+pip install -r requirements.txt
+
+# 6. Automatische Beveiliging Configuratie
+echo "🔐 Beveiliging configureren..."
+
+# Genereer SECRET_KEY als deze nog niet bestaat
+if [ ! -f ".env" ]; then
+    cp .env.example .env
+    RANDOM_SECRET=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+    sed -i "s/SECRET_KEY=.*/SECRET_KEY=$RANDOM_SECRET/" .env
+    echo "✅ Unieke SECRET_KEY gegenereerd."
 fi
 
-# 6. .env setup
-if [ ! -f .env ]; then
-    echo "⚙️ .env bestand aanmaken..."
-    cp .env.example .env
+# Vraag om wachtwoord en genereer hash
+if ! grep -q "PASSWORD_HASH=\$2b\$12\$" .env; then
+    echo "------------------------------------------------"
+    echo "Stel je toegangswachtwoord in voor de webinterface."
+    read -s -p "Voer wachtwoord in: " plain_pwd
+    echo ""
+    read -s -p "Bevestig wachtwoord: " confirm_pwd
+    echo ""
+    
+    if [ "$plain_pwd" == "$confirm_pwd" ] && [ ! -z "$plain_pwd" ]; then
+        # Gebruik Python (met passlib uit venv) om hash te genereren
+        PWD_HASH=$(python3 -c "from passlib.context import CryptContext; pwd_context = CryptContext(schemes=['bcrypt'], deprecated='auto'); print(pwd_context.hash('$plain_pwd'))")
+        # Ontsnap de $ tekens voor sed
+        ESCAPED_HASH=$(echo $PWD_HASH | sed 's/\$/\\\$/g')
+        sed -i "s|PASSWORD_HASH=.*|PASSWORD_HASH=$ESCAPED_HASH|" .env
+        echo "✅ Wachtwoord veilig gehashed en opgeslagen."
+    else
+        echo "⚠️  Wachtwoorden komen niet overeen of zijn leeg. Je moet dit later handmatig doen!"
+    fi
 fi
 
 # 7. Systemd Service
@@ -65,8 +87,6 @@ echo "------------------------------------------------"
 read -p "❓ Wil je een autostart service aanmaken? (j/n): " create_service
 if [[ $create_service == "j" || $create_service == "J" ]]; then
     SERVICE_FILE="/etc/systemd/system/gemininexus.service"
-    echo "⚙️  Service aanmaken in $SERVICE_FILE..."
-    
     cat <<EOF > $SERVICE_FILE
 [Unit]
 Description=GeminiNexus AI Assistant
@@ -85,13 +105,13 @@ EOF
 
     systemctl daemon-reload
     systemctl enable gemininexus
-    echo "✅ Service 'gemininexus' ingeschakeld."
+    systemctl restart gemininexus
+    echo "✅ Service 'gemininexus' is actief."
 fi
 
 echo ""
 echo "✅ GeminiNexus installatie voltooid!"
 echo "------------------------------------------------"
-echo "Locatie: $INSTALL_DIR"
-echo "1. Vul je .env bestand in: nano $INSTALL_DIR/.env"
-echo "2. Start de service: systemctl start gemininexus"
+echo "URL: http://$(hostname -I | awk '{print $1}'):8000"
+echo "Status: De assistent draait en is beveiligd."
 echo "------------------------------------------------"
