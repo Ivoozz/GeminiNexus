@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GeminiNexus | Secure AI Assistant</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.6.7/axios.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: #f8fafc; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #1e293b; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    </style>
+</head>
+<body class="overflow-hidden">
+    <div id="root"></div>
+
+    <script type="text/javascript">
+        const { useState, useEffect, useRef } = React;
+
+        const GeminiNexus = () => {
+            const [token, setToken] = useState(localStorage.getItem('nexus_token'));
+            const [password, setPassword] = useState('');
+            const [loginError, setLoginError] = useState('');
+            const [messages, setMessages] = useState([
+                { id: 1, role: 'ai', text: 'Systeem beveiligd. Hoe kan ik je vandaag helpen?' }
+            ]);
+            const [input, setInput] = useState('');
+            const [isLoading, setIsLoading] = useState(false);
+            const [status, setStatus] = useState({ disk_usage: '...', memory_usage: '...' });
+            const chatEndRef = useRef(null);
+
+            const handleLogin = async (e) => {
+                e.preventDefault();
+                try {
+                    const res = await axios.post('/api/login', { password });
+                    const newToken = res.data.access_token;
+                    setToken(newToken);
+                    localStorage.setItem('nexus_token', newToken);
+                    setLoginError('');
+                } catch (err) {
+                    setLoginError('Onjuist wachtwoord');
+                }
+            };
+
+            const fetchStatus = async () => {
+                if (!token) return;
+                try {
+                    const res = await axios.get('/api/status', {
+                        headers: { Authorization: `Bearer ${token}` }
+                    });
+                    setStatus(res.data);
+                } catch (err) {
+                    if (err.response?.status === 403) handleLogout();
+                }
+            };
+
+            const handleLogout = () => {
+                setToken(null);
+                localStorage.removeItem('nexus_token');
+            };
+
+            useEffect(() => {
+                if (token) {
+                    fetchStatus();
+                    const interval = setInterval(fetchStatus, 30000);
+                    return () => clearInterval(interval);
+                }
+            }, [token]);
+
+            useEffect(() => {
+                chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+                lucide.createIcons();
+            }, [messages, token]);
+
+            const sendMessage = async (e) => {
+                e.preventDefault();
+                if (!input.trim() || isLoading) return;
+
+                const userMsg = { id: Date.now(), role: 'user', text: input };
+                setMessages(prev => [...prev, userMsg]);
+                setInput('');
+                setIsLoading(true);
+
+                try {
+                    const res = await axios.post('/api/chat', { message: input }, {
+                        headers: { Authorization: `Bearer ${token}` }
+                    });
+                    setMessages(prev => [...prev, { id: Date.now() + 1, role: 'ai', text: res.data.response }]);
+                } catch (err) {
+                    if (err.response?.status === 403) handleLogout();
+                    else setMessages(prev => [...prev, { id: Date.now() + 1, role: 'ai', text: 'Fout bij verbinden met AI.' }]);
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            if (!token) {
+                return React.createElement('div', { className: 'h-screen flex items-center justify-center p-4' },
+                    React.createElement('div', { className: 'bg-slate-800 p-8 rounded-2xl shadow-2xl border border-slate-700 w-full max-w-md' },
+                        React.createElement('div', { className: 'flex flex-col items-center mb-6' },
+                            React.createElement('div', { className: 'bg-blue-600 p-3 rounded-xl mb-4' }, 
+                                React.createElement('i', { 'data-lucide': 'lock', className: 'text-white w-8 h-8' })
+                            ),
+                            React.createElement('h1', { className: 'text-2xl font-bold' }, 'GeminiNexus Login')
+                        ),
+                        React.createElement('form', { onSubmit: handleLogin, className: 'space-y-4' },
+                            React.createElement('div', null,
+                                React.createElement('label', { className: 'block text-sm font-medium text-slate-400 mb-1' }, 'Wachtwoord'),
+                                React.createElement('input', {
+                                    type: 'password',
+                                    value: password,
+                                    onChange: (e) => setPassword(e.target.value),
+                                    className: 'w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none',
+                                    placeholder: '********'
+                                })
+                            ),
+                            loginError && React.createElement('p', { className: 'text-red-500 text-sm' }, loginError),
+                            React.createElement('button', { 
+                                type: 'submit',
+                                className: 'w-full bg-blue-600 hover:bg-blue-500 py-2 rounded-lg font-semibold transition-colors'
+                            }, 'Toegang Verlenen')
+                        )
+                    )
+                );
+            }
+
+            return React.createElement('div', { className: 'flex flex-col h-screen' },
+                // Header
+                React.createElement('header', { className: 'bg-slate-800 border-b border-slate-700 p-4 shadow-lg' },
+                    React.createElement('div', { className: 'container mx-auto flex justify-between items-center' },
+                        React.createElement('div', { className: 'flex items-center space-x-2' },
+                            React.createElement('div', { className: 'bg-blue-600 p-1.5 rounded-lg' }, 
+                                React.createElement('i', { 'data-lucide': 'cpu', className: 'text-white w-5 h-5' })
+                            ),
+                            React.createElement('h1', { className: 'text-lg font-bold' }, 'GeminiNexus')
+                        ),
+                        React.createElement('div', { className: 'flex items-center space-x-4' },
+                            React.createElement('div', { className: 'hidden sm:flex space-x-3 text-xs text-slate-400' },
+                                React.createElement('span', null, `Disk: ${status.disk_usage}`),
+                                React.createElement('span', null, `RAM: ${status.memory_usage}`)
+                            ),
+                            React.createElement('button', { onClick: handleLogout, className: 'text-slate-400 hover:text-white' },
+                                React.createElement('i', { 'data-lucide': 'log-out', className: 'w-5 h-5' })
+                            )
+                        )
+                    )
+                ),
+
+                // Chat Area
+                React.createElement('main', { className: 'flex-1 container mx-auto max-w-4xl p-4 flex flex-col overflow-hidden' },
+                    React.createElement('div', { className: 'flex-1 overflow-y-auto mb-4 space-y-4 pr-2 custom-scrollbar' },
+                        messages.map(msg => 
+                            React.createElement('div', { key: msg.id, className: `flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}` },
+                                React.createElement('div', { 
+                                    className: `max-w-[85%] p-3 rounded-xl ${
+                                        msg.role === 'user' ? 'bg-blue-600' : 'bg-slate-800 border border-slate-700'
+                                    }`
+                                }, 
+                                    React.createElement('p', { className: 'whitespace-pre-wrap text-sm leading-relaxed' }, msg.text)
+                                )
+                            )
+                        ),
+                        isLoading && React.createElement('div', { className: 'flex justify-start animate-pulse' },
+                            React.createElement('div', { className: 'bg-slate-800 p-3 rounded-xl' }, 'AI denkt na...')
+                        ),
+                        React.createElement('div', { ref: chatEndRef })
+                    ),
+
+                    // Input
+                    React.createElement('form', { onSubmit: sendMessage, className: 'relative' },
+                        React.createElement('input', {
+                            type: 'text',
+                            value: input,
+                            onChange: (e) => setInput(e.target.value),
+                            placeholder: 'Vraag Gemini CLI...',
+                            className: 'w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none'
+                        }),
+                        React.createElement('button', { type: 'submit', className: 'absolute right-2 top-2 p-1.5 bg-blue-600 rounded-lg' }, 
+                            React.createElement('i', { 'data-lucide': 'send', className: 'w-5 h-5' })
+                        )
+                    )
+                )
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(React.createElement(GeminiNexus));
+    </script>
+</body>
+</html>
