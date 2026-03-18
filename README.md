@@ -19,12 +19,12 @@ Dit project is ontworpen met security als prioriteit:
 ## 🛠️ Installatie op een nieuwe LXC
 Op je nieuwe Debian LXC kun je het project in één keer installeren met dit commando:
 ```bash
-bash <(curl -sL https://raw.githubusercontent.com/jouw-gebruikersnaam/GeminiNexus/main/install.sh)
+bash <(curl -sL https://raw.githubusercontent.com/Ivoozz/GeminiNexus/main/install.sh)
 ```
 *(Vervang 'jouw-gebruikersnaam' door je echte GitHub naam na het pushen).*
 
 Of handmatig:
-1.  Kloon de repo: `git clone https://github.com/jouw-gebruikersnaam/GeminiNexus.git`
+1.  Kloon de repo: `git clone https://github.com/Ivoozz/GeminiNexus.git`
 2.  Ga naar de map: `cd GeminiNexus`
 3.  Draai de installer: `chmod +x install.sh && ./install.sh`
 
