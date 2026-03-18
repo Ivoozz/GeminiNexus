@@ -6,6 +6,7 @@ httpx<0.27.0
 python-telegram-bot>=20.0
 aiosmtplib
 jinja2
-passlib[bcrypt]
+bcrypt
+passlib
 python-jose[cryptography]
 python-multipart

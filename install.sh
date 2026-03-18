@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# GeminiNexus Fully Autonomous Installer
+# GeminiNexus Fully Autonomous Installer (Secure Edition)
 echo "🚀 Start installatie van GeminiNexus op Debian LXC..."
 
 # 1. Root check
@@ -61,24 +61,30 @@ if [ ! -f ".env" ]; then
     echo "✅ Unieke SECRET_KEY gegenereerd."
 fi
 
-# Vraag om wachtwoord en genereer hash
-if ! grep -q "PASSWORD_HASH=\$2b\$12\$" .env; then
+# Vraag om wachtwoord en genereer hash (Veilige methode)
+if ! grep -q "PASSWORD_HASH=\$2b\$" .env; then
     echo "------------------------------------------------"
     echo "Stel je toegangswachtwoord in voor de webinterface."
-    read -s -p "Voer wachtwoord in: " plain_pwd
+    # Gebruik -r om te voorkomen dat backslashes worden geïnterpreteerd
+    read -rs -p "Voer wachtwoord in: " plain_pwd
     echo ""
-    read -s -p "Bevestig wachtwoord: " confirm_pwd
+    read -rs -p "Bevestig wachtwoord: " confirm_pwd
     echo ""
     
     if [ "$plain_pwd" == "$confirm_pwd" ] && [ ! -z "$plain_pwd" ]; then
-        # Gebruik Python (met passlib uit venv) om hash te genereren
-        PWD_HASH=$(python3 -c "from passlib.context import CryptContext; pwd_context = CryptContext(schemes=['bcrypt'], deprecated='auto'); print(pwd_context.hash('$plain_pwd'))")
+        echo "⏳ Wachtwoord hashen..."
+        # Geef het wachtwoord door via een environment variable om shell expansion te voorkomen
+        export TEMP_PWD="$plain_pwd"
+        PWD_HASH=$(python3 -c "import bcrypt, os; print(bcrypt.hashpw(os.environ['TEMP_PWD'].encode(), bcrypt.gensalt()).decode())")
+        unset TEMP_PWD
+        
         # Ontsnap de $ tekens voor sed
         ESCAPED_HASH=$(echo $PWD_HASH | sed 's/\$/\\\$/g')
         sed -i "s|PASSWORD_HASH=.*|PASSWORD_HASH=$ESCAPED_HASH|" .env
         echo "✅ Wachtwoord veilig gehashed en opgeslagen."
     else
-        echo "⚠️  Wachtwoorden komen niet overeen of zijn leeg. Je moet dit later handmatig doen!"
+        echo "⚠️  Wachtwoorden komen niet overeen of zijn leeg. Probeer de installatie opnieuw."
+        exit 1
     fi
 fi
 
@@ -113,5 +119,4 @@ echo ""
 echo "✅ GeminiNexus installatie voltooid!"
 echo "------------------------------------------------"
 echo "URL: http://$(hostname -I | awk '{print $1}'):8000"
-echo "Status: De assistent draait en is beveiligd."
 echo "------------------------------------------------"
