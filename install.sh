@@ -1,65 +1,71 @@
 #!/bin/bash
 
-# GeminiNexus One-Line Installer
+# GeminiNexus Absolute Installer
 echo "🚀 Start installatie van GeminiNexus op Debian LXC..."
 
-# 1. Check if running as root
+# 1. Root check
 if [ "$EUID" -ne 0 ]; then 
-  echo "❌ Fout: Voer dit script uit als root (sudo) om de autostart service aan te maken."
+  echo "❌ Fout: Voer dit script uit als root."
   exit 1
 fi
 
+# 2. Bepaal installatiepad (standaard in de huidige map, in een submap GeminiNexus)
+BASE_DIR=$(pwd)
+INSTALL_DIR="$BASE_DIR/GeminiNexus"
+
 # Functie om te wachten op APT lock
 wait_for_apt_lock() {
-    echo "⏳ Wachten op APT lock (andere installaties)..."
+    echo "⏳ Wachten op APT lock..."
     while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || fuser /var/lib/apt/lists/lock >/dev/null 2>&1 || fuser /var/lib/dpkg/lock >/dev/null 2>&1; do
         sleep 1
     done
-    echo "✅ APT lock vrijgegeven."
 }
 
-# 2. Systeem pakketten installeren
+# 3. Systeem pakketten
 wait_for_apt_lock
-echo "📦 Systeem updaten en afhankelijkheden installeren..."
+echo "📦 Installeren van systeem afhankelijkheden..."
 apt update && apt install -y python3-pip python3-venv git curl psmisc
 
-# 3. Project ophalen
-INSTALL_DIR=$(pwd)
-if [ ! -d "GeminiNexus" ]; then
-    echo "📂 Project bestanden ophalen van GitHub..."
-    git clone https://github.com/Ivoozz/GeminiNexus.git
-    cd GeminiNexus || exit 1
-    INSTALL_DIR=$(pwd)
+# 4. Project ophalen of updaten
+if [ ! -d "$INSTALL_DIR" ]; then
+    echo "📂 Project downloaden van GitHub naar $INSTALL_DIR..."
+    git clone https://github.com/Ivoozz/GeminiNexus.git "$INSTALL_DIR" || { echo "❌ Git clone mislukt!"; exit 1; }
 else
-    echo "📂 GeminiNexus map bestaat al, we halen de laatste wijzigingen op..."
-    cd GeminiNexus || exit 1
-    git fetch --all
-    git reset --hard origin/main
-    INSTALL_DIR=$(pwd)
+    echo "📂 Project bestaat al in $INSTALL_DIR, we halen de nieuwste versie op..."
+    cd "$INSTALL_DIR" || exit 1
+    git fetch --all && git reset --hard origin/main
 fi
 
-# 4. Python omgeving opzetten
+# Ga naar de projectmap
+cd "$INSTALL_DIR" || { echo "❌ Kan de projectmap niet betreden!"; exit 1; }
+echo "📍 Huidige map: $(pwd)"
+
+# 5. Python omgeving opzetten
 echo "🐍 Python virtual environment aanmaken..."
 python3 -m venv venv
 source venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
 
-# 5. Configuratie voorbereiden
+echo "📦 Python pakketten installeren..."
+pip install --upgrade pip
+if [ -f "requirements.txt" ]; then
+    pip install -r requirements.txt
+else
+    echo "❌ FOUT: requirements.txt niet gevonden in $(pwd)!"
+    exit 1
+fi
+
+# 6. .env setup
 if [ ! -f .env ]; then
     echo "⚙️ .env bestand aanmaken..."
     cp .env.example .env
-    echo "⚠️  BELANGRIJK: Vergeet niet je wachtwoord hash te genereren met:"
-    echo "   python3 scripts/setup_password.py"
 fi
 
-# 6. Autostart Service (Systemd)
+# 7. Systemd Service
 echo "------------------------------------------------"
 read -p "❓ Wil je een autostart service aanmaken? (j/n): " create_service
 if [[ $create_service == "j" || $create_service == "J" ]]; then
-    echo "⚙️  Systeem service aanmaken..."
-    
     SERVICE_FILE="/etc/systemd/system/gemininexus.service"
+    echo "⚙️  Service aanmaken in $SERVICE_FILE..."
     
     cat <<EOF > $SERVICE_FILE
 [Unit]
@@ -79,16 +85,13 @@ EOF
 
     systemctl daemon-reload
     systemctl enable gemininexus
-    echo "✅ Service 'gemininexus' is aangemaakt en ingeschakeld."
-    echo "   Start de service met: systemctl start gemininexus"
+    echo "✅ Service 'gemininexus' ingeschakeld."
 fi
 
 echo ""
-echo "✅ GeminiNexus is succesvol geïnstalleerd!"
+echo "✅ GeminiNexus installatie voltooid!"
 echo "------------------------------------------------"
-echo "Volgende stappen:"
-echo "1. Ga naar de map: cd $INSTALL_DIR"
-echo "2. Vul je .env bestand in (wachtwoord hash, etc)."
-echo "3. Start de service: systemctl start gemininexus"
-echo "   (of handmatig voor debuggen: source venv/bin/activate && uvicorn backend.main:app --host 0.0.0.0 --port 8000)"
+echo "Locatie: $INSTALL_DIR"
+echo "1. Vul je .env bestand in: nano $INSTALL_DIR/.env"
+echo "2. Start de service: systemctl start gemininexus"
 echo "------------------------------------------------"
