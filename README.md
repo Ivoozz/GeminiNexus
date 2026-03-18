@@ -21,7 +21,6 @@ Op je nieuwe Debian LXC kun je het project in één keer installeren met dit com
 ```bash
 bash <(curl -sL https://raw.githubusercontent.com/Ivoozz/GeminiNexus/main/install.sh)
 ```
-*(Vervang 'jouw-gebruikersnaam' door je echte GitHub naam na het pushen).*
 
 Of handmatig:
 1.  Kloon de repo: `git clone https://github.com/Ivoozz/GeminiNexus.git`
