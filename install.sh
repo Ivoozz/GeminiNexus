@@ -31,8 +31,10 @@ if [ ! -d "GeminiNexus" ]; then
     cd GeminiNexus || exit 1
     INSTALL_DIR=$(pwd)
 else
-    echo "📂 GeminiNexus map bestaat al, we gaan verder in deze map..."
+    echo "📂 GeminiNexus map bestaat al, we halen de laatste wijzigingen op..."
     cd GeminiNexus || exit 1
+    git fetch --all
+    git reset --hard origin/main
     INSTALL_DIR=$(pwd)
 fi
 
