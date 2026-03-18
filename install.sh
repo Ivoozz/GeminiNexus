@@ -7,11 +7,14 @@ echo "🚀 Start installatie van GeminiNexus op Debian LXC..."
 echo "📦 Systeem updaten en afhankelijkheden installeren..."
 sudo apt update && sudo apt install -y python3-pip python3-venv git curl
 
-# 2. Project ophalen (indien nog niet aanwezig)
-if [ ! -d "backend" ]; then
+# 2. Project ophalen
+if [ ! -d "GeminiNexus" ]; then
     echo "📂 Project bestanden ophalen van GitHub..."
-    # De gebruiker moet hier hun eigen repo URL invullen of we gaan ervan uit dat ze al in de map zitten
-    # git clone https://github.com/jouw-gebruikersnaam/GeminiNexus.git .
+    git clone https://github.com/Ivoozz/GeminiNexus.git
+    cd GeminiNexus || exit
+else
+    echo "📂 GeminiNexus map bestaat al, we gaan verder in deze map..."
+    cd GeminiNexus || exit
 fi
 
 # 3. Python omgeving opzetten
@@ -33,8 +36,9 @@ echo ""
 echo "✅ GeminiNexus is succesvol geïnstalleerd!"
 echo "------------------------------------------------"
 echo "Volgende stappen:"
-echo "1. Vul je .env bestand in."
-echo "2. Start de applicatie:"
+echo "1. Ga naar de map: cd GeminiNexus"
+echo "2. Vul je .env bestand in."
+echo "3. Start de applicatie:"
 echo "   source venv/bin/activate"
 echo "   python3 -m uvicorn backend.main:app --host 0.0.0.0 --port 8000"
 echo "------------------------------------------------"
