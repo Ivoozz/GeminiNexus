@@ -10,3 +10,4 @@ bcrypt
 passlib
 python-jose[cryptography]
 python-multipart
+sse-starlette

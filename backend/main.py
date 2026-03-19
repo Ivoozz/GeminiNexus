@@ -1,43 +1,33 @@
 from fastapi import FastAPI, HTTPException, Depends, Security, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 import os
 import logging
 import time
 import secrets
-import traceback
-import bcrypt
+import json
 from jose import JWTError, jwt
+from passlib.context import CryptContext
 from dotenv import load_dotenv, set_key
-from .gemini_bridge import ask_gemini
+from .gemini_bridge import stream_gemini
 import subprocess
+from sse_starlette.sse import EventSourceResponse
 
 # Load environment variables
 ENV_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
 load_dotenv(ENV_FILE)
 
-# Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("GeminiNexus")
-
 # Configuration
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = "HS256"
 
-# Security helpers (Direct bcrypt, avoiding passlib bugs)
+# Setup hashing & security
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
-
-def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    try:
-        return bcrypt.checkpw(plain_password.encode(), hashed_password.encode())
-    except Exception as e:
-        logger.error(f"Wachtwoord verificatie fout: {str(e)}")
-        return False
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("GeminiNexus")
 
 app = FastAPI(title="GeminiNexus AI Assistant")
 
@@ -66,15 +56,11 @@ class ChatRequest(BaseModel):
 
 # Helper functions
 def get_password_hash():
-    try:
-        load_dotenv(ENV_FILE)
-        pwd_hash = os.getenv("PASSWORD_HASH")
-        if pwd_hash and pwd_hash.startswith("$2b$"):
-            return pwd_hash
-        return None
-    except Exception as e:
-        logger.error(f"Fout bij lezen password hash: {str(e)}")
-        return None
+    load_dotenv(ENV_FILE)
+    pwd_hash = os.getenv("PASSWORD_HASH")
+    if pwd_hash and pwd_hash.startswith("$2b$"):
+        return pwd_hash
+    return None
 
 def create_access_token(data: dict):
     to_encode = data.copy()
@@ -82,12 +68,18 @@ def create_access_token(data: dict):
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Security(security)):
+def verify_token(token: str):
     try:
-        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         return payload
     except JWTError:
+        return None
+
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Security(security)):
+    payload = verify_token(credentials.credentials)
+    if not payload:
         raise HTTPException(status_code=403, detail="Sessie verlopen")
+    return payload
 
 @app.get("/")
 async def root():
@@ -99,69 +91,59 @@ async def setup_status():
 
 @app.post("/api/onboard")
 async def onboard(request: OnboardRequest):
-    logger.info("Onboarding gestart (Direct Bcrypt)...")
-    try:
-        if get_password_hash():
-            raise HTTPException(status_code=400, detail="App is al geconfigureerd.")
-        
-        # Generate password hash via direct bcrypt
-        hashed_pwd = hash_password(request.password)
-        
-        if not os.path.exists(ENV_FILE):
-            with open(ENV_FILE, "w") as f:
-                f.write(f"SECRET_KEY={secrets.token_urlsafe(32)}\n")
-        
-        def safe_set_key(key, value):
-            if value:
-                try:
-                    set_key(ENV_FILE, key, str(value))
-                except Exception as e:
-                    logger.error(f"Fout bij opslaan {key}: {str(e)}")
-                    raise e
-
-        safe_set_key("PASSWORD_HASH", hashed_pwd)
-        safe_set_key("TELEGRAM_TOKEN", request.telegram_token)
-        safe_set_key("TELEGRAM_CHAT_ID", request.telegram_chat_id)
-        safe_set_key("SMTP_HOST", request.smtp_host)
-        safe_set_key("SMTP_PORT", request.smtp_port)
-        safe_set_key("SMTP_USER", request.smtp_user)
-        safe_set_key("SMTP_PASS", request.smtp_pass)
-        safe_set_key("IMAP_HOST", request.imap_host)
-        safe_set_key("IMAP_PORT", request.imap_port)
-        safe_set_key("IMAP_USER", request.imap_user)
-        safe_set_key("IMAP_PASS", request.imap_pass)
-        
-        logger.info("Onboarding succesvol afgerond.")
-        return {"status": "success"}
-
-    except Exception as e:
-        logger.error(f"CRITICAL ONBOARDING ERROR: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Onboarding fout: {str(e)}")
+    if get_password_hash():
+        raise HTTPException(status_code=400, detail="App is al geconfigureerd.")
+    
+    hashed_pwd = pwd_context.hash(request.password)
+    
+    if not os.path.exists(ENV_FILE):
+        with open(ENV_FILE, "w") as f:
+            f.write(f"SECRET_KEY={secrets.token_urlsafe(32)}\n")
+    
+    set_key(ENV_FILE, "PASSWORD_HASH", hashed_pwd)
+    
+    # Optional fields
+    if request.telegram_token: set_key(ENV_FILE, "TELEGRAM_TOKEN", request.telegram_token)
+    if request.telegram_chat_id: set_key(ENV_FILE, "TELEGRAM_CHAT_ID", request.telegram_chat_id)
+    if request.smtp_host: set_key(ENV_FILE, "SMTP_HOST", request.smtp_host)
+    if request.smtp_port: set_key(ENV_FILE, "SMTP_PORT", request.smtp_port)
+    if request.smtp_user: set_key(ENV_FILE, "SMTP_USER", request.smtp_user)
+    if request.smtp_pass: set_key(ENV_FILE, "SMTP_PASS", request.smtp_pass)
+    if request.imap_host: set_key(ENV_FILE, "IMAP_HOST", request.imap_host)
+    if request.imap_port: set_key(ENV_FILE, "IMAP_PORT", request.imap_port)
+    if request.imap_user: set_key(ENV_FILE, "IMAP_USER", request.imap_user)
+    if request.imap_pass: set_key(ENV_FILE, "IMAP_PASS", request.imap_pass)
+    
+    return {"status": "success"}
 
 @app.post("/api/login")
 async def login(request: LoginRequest):
-    try:
-        current_hash = get_password_hash()
-        if not current_hash:
-            raise HTTPException(status_code=400, detail="Voer eerst de onboarding uit.")
-        
-        if verify_password(request.password, current_hash):
-            token = create_access_token(data={"sub": "admin"})
-            return {"access_token": token, "token_type": "bearer"}
-        
+    current_hash = get_password_hash()
+    if not current_hash or not pwd_context.verify(request.password, current_hash):
         raise HTTPException(status_code=401, detail="Onjuist wachtwoord")
-    except Exception as e:
-        logger.error(f"Login fout: {str(e)}")
-        raise HTTPException(status_code=500, detail="Login mislukt.")
+    
+    token = create_access_token(data={"sub": "admin"})
+    return {"access_token": token, "token_type": "bearer"}
 
-@app.post("/api/chat")
-async def chat(request: ChatRequest, user: dict = Depends(get_current_user)):
-    try:
-        ai_response = ask_gemini(request.message)
-        return {"response": ai_response}
-    except Exception as e:
-        logger.error(f"AI Fout: {str(e)}")
-        return {"response": f"Fout: {str(e)}"}
+@app.get("/api/chat/stream")
+async def chat_stream(request: Request, message: str, token: str):
+    """
+    Streaming endpoint using SSE.
+    """
+    if not verify_token(token):
+        raise HTTPException(status_code=403, detail="Ongeldig token")
+
+    async def event_generator():
+        for line in stream_gemini(message):
+            # Check if client is still connected
+            if await request.is_disconnected():
+                logger.info("Client disconnected from stream.")
+                break
+            
+            # Yield data in SSE format
+            yield {"data": line}
+
+    return EventSourceResponse(event_generator())
 
 @app.get("/api/status")
 async def system_status(user: dict = Depends(get_current_user)):
