@@ -1,28 +1,25 @@
-from fastapi import FastAPI, HTTPException, Depends, Security
+from fastapi import FastAPI, HTTPException, Depends, Security, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 import os
 import logging
 import time
+import secrets
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from dotenv import load_dotenv
+from dotenv import load_dotenv, set_key
 from .gemini_bridge import ask_gemini
 import subprocess
 
 # Load environment variables
-load_dotenv()
+ENV_FILE = os.path.join(os.path.dirname(__file__), "..", ".env")
+load_dotenv(ENV_FILE)
 
-# Configuration (Strict security)
+# Configuration
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = "HS256"
-PASSWORD_HASH = os.getenv("PASSWORD_HASH")
-
-if not SECRET_KEY or not PASSWORD_HASH:
-    print("❌ CRITICAL ERROR: SECRET_KEY or PASSWORD_HASH is missing in .env")
-    print("Run the install.sh script to configure security correctly.")
 
 # Setup hashing & security
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -36,18 +33,25 @@ app = FastAPI(title="GeminiNexus AI Assistant")
 frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
 app.mount("/static", StaticFiles(directory=frontend_path), name="static")
 
+class OnboardRequest(BaseModel):
+    password: str
+    telegram_token: str = ""
+    telegram_chat_id: str = ""
+
 class LoginRequest(BaseModel):
     password: str
 
 class ChatRequest(BaseModel):
     message: str
 
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
+# Helper functions
+def get_password_hash():
+    load_dotenv(ENV_FILE)
+    return os.getenv("PASSWORD_HASH")
 
 def create_access_token(data: dict):
     to_encode = data.copy()
-    expire = time.time() + (3600 * 24) # Valid for 24 hours
+    expire = time.time() + (3600 * 24) 
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
@@ -56,18 +60,46 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Security(
         payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
         return payload
     except JWTError:
-        raise HTTPException(status_code=403, detail="Ongeldig of verlopen token")
+        raise HTTPException(status_code=403, detail="Sessie verlopen")
 
 @app.get("/")
 async def root():
     return FileResponse(os.path.join(frontend_path, "index.html"))
 
+@app.get("/api/setup-status")
+async def setup_status():
+    """Checks if the app has been onboarded (password set)."""
+    return {"onboarded": get_password_hash() is not None}
+
+@app.post("/api/onboard")
+async def onboard(request: OnboardRequest):
+    """Initial setup of the application."""
+    if get_password_hash():
+        raise HTTPException(status_code=400, detail="App is al geconfigureerd.")
+    
+    # Generate password hash
+    hashed_pwd = pwd_context.hash(request.password)
+    
+    # Update .env file
+    if not os.path.exists(ENV_FILE):
+        with open(ENV_FILE, "w") as f:
+            f.write(f"SECRET_KEY={secrets.token_urlsafe(32)}\n")
+    
+    set_key(ENV_FILE, "PASSWORD_HASH", hashed_pwd)
+    if request.telegram_token:
+        set_key(ENV_FILE, "TELEGRAM_TOKEN", request.telegram_token)
+    if request.telegram_chat_id:
+        set_key(ENV_FILE, "TELEGRAM_CHAT_ID", request.telegram_chat_id)
+    
+    return {"status": "success", "message": "Onboarding voltooid. Herstart de service of log in."}
+
 @app.post("/api/login")
 async def login(request: LoginRequest):
-    if not PASSWORD_HASH:
-        raise HTTPException(status_code=500, detail="Server niet correct geconfigureerd.")
+    current_hash = get_password_hash()
+    if not current_hash:
+        raise HTTPException(status_code=400, detail="Voer eerst de onboarding uit.")
     
-    if verify_password(request.password, PASSWORD_HASH):
+    if pwd_context.verify(request.password, current_hash):
         token = create_access_token(data={"sub": "admin"})
         return {"access_token": token, "token_type": "bearer"}
     
@@ -75,7 +107,6 @@ async def login(request: LoginRequest):
 
 @app.post("/api/chat")
 async def chat(request: ChatRequest, user: dict = Depends(get_current_user)):
-    logger.info(f"Chat request: {request.message[:50]}...")
     ai_response = ask_gemini(request.message)
     return {"response": ai_response}
 
@@ -83,9 +114,7 @@ async def chat(request: ChatRequest, user: dict = Depends(get_current_user)):
 async def system_status(user: dict = Depends(get_current_user)):
     try:
         disk = subprocess.check_output(["df", "-h", "/"]).decode("utf-8").split("\n")[1].split()
-        disk_usage = disk[4]
         mem = subprocess.check_output(["free", "-m"]).decode("utf-8").split("\n")[1].split()
-        mem_usage = f"{mem[2]}MB / {mem[1]}MB"
-        return {"status": "online", "disk_usage": disk_usage, "memory_usage": mem_usage}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+        return {"status": "online", "disk_usage": disk[4], "memory_usage": f"{mem[2]}MB / {mem[1]}MB"}
+    except:
+        return {"status": "error"}
