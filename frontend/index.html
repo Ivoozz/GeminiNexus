@@ -3,38 +3,28 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GeminiNexus | Autonomous AI</title>
+    <title>Nexus | Autonomous AI</title>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.6.7/axios.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-        body { font-family: 'Inter', sans-serif; background-color: #020617; color: #f8fafc; }
-        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: #0f172a; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
-        .thought { color: #94a3b8; font-style: italic; border-left: 2px solid #334155; padding-left: 0.75rem; margin: 0.5rem 0; font-size: 0.85rem; }
-        .tool-call { color: #38bdf8; font-family: monospace; font-size: 0.75rem; background: #0f172a; padding: 0.2rem 0.4rem; border-radius: 0.25rem; margin: 0.2rem 0; display: block; }
+        body { font-family: 'Inter', sans-serif; background-color: #0d0d0d; color: #ececec; }
+        .custom-scrollbar::-webkit-scrollbar { width: 5px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #2f2f2f; border-radius: 10px; }
+        .thought { color: #8e8ea0; font-style: italic; border-left: 2px solid #2f2f2f; padding-left: 1rem; margin: 0.75rem 0; font-size: 0.9rem; }
+        .tool-call { color: #10a37f; font-family: 'Courier New', monospace; background: #1a1a1a; padding: 0.5rem; border-radius: 0.5rem; border: 1px solid #333; margin: 0.5rem 0; font-size: 0.8rem; }
     </style>
 </head>
-<body class="overflow-hidden text-slate-200">
+<body>
     <div id="root"></div>
 
-    <script type="text/javascript">
+    <script type="text/babel">
         const { useState, useEffect, useRef } = React;
-        const e = React.createElement;
-
-        const FormInput = ({ label, value, onChange, type="text", placeholder="" }) => 
-            e('div', { className: 'space-y-1' },
-                e('label', { className: 'text-[10px] font-bold text-slate-500 uppercase tracking-wider' }, label),
-                e('input', { 
-                    type, placeholder, value,
-                    className: 'w-full bg-slate-900 border border-slate-800 rounded-xl p-3 outline-none focus:ring-1 focus:ring-blue-500 text-sm',
-                    onChange: ev => onChange(e.target ? ev.target.value : ev) 
-                })
-            );
 
         const App = () => {
             const [view, setView] = useState('loading');
@@ -44,166 +34,209 @@
                 axios.get('/api/setup-status').then(res => {
                     if (!res.data.onboarded) setView('setup');
                     else if (!token) setView('login');
-                    else setView('dashboard');
+                    else setView('main');
                 }).catch(() => setView('login'));
             }, []);
 
-            if (view === 'loading') return e('div', { className: 'h-screen flex items-center justify-center font-mono text-blue-500' }, 'INITIALIZING_NEXUS...');
-            if (view === 'setup') return e(SetupWizard, { onComplete: () => setView('login') });
-            if (view === 'login') return e(LoginView, { onComplete: (t) => { setToken(t); localStorage.setItem('nexus_token', t); setView('dashboard'); } });
-            return e(Dashboard, { token, onLogout: () => { setToken(null); localStorage.removeItem('nexus_token'); setView('login'); } });
+            if (view === 'loading') return <div className="h-screen flex items-center justify-center animate-pulse text-emerald-500 font-mono italic">BOOTING_NEXUS...</div>;
+            if (view === 'setup') return <SetupWizard onComplete={() => setView('login')} />;
+            if (view === 'login') return <LoginView onComplete={(t) => { setToken(t); localStorage.setItem('nexus_token', t); setView('main'); }} />;
+            return <MainView token={token} onLogout={() => { setToken(null); localStorage.removeItem('nexus_token'); setView('login'); }} />;
         };
 
         const SetupWizard = ({ onComplete }) => {
-            const [step, setStep] = useState(1);
-            const [formData, setFormData] = useState({ password: '', telegram_token: '', telegram_chat_id: '', smtp_host: '', smtp_port: '587', smtp_user: '', smtp_pass: '', imap_host: '', imap_port: '993' });
-            const update = (f, v) => setFormData(p => ({ ...p, [f]: v }));
-            
-            return e('div', { className: 'h-screen flex items-center justify-center p-4' },
-                e('div', { className: 'bg-slate-900 p-8 rounded-3xl border border-slate-800 w-full max-w-md shadow-2xl' },
-                    e('h1', { className: 'text-xl font-bold mb-6' }, 'GeminiNexus Setup'),
-                    step === 1 && e('div', { className: 'space-y-4' },
-                        e(FormInput, { label: 'Password', value: formData.password, onChange: v => update('password', v), type: 'password' }),
-                        e('button', { onClick: () => setStep(2), className: 'w-full bg-blue-600 p-3 rounded-xl font-bold' }, 'Volgende')
-                    ),
-                    step === 2 && e('div', { className: 'space-y-4' },
-                        e(FormInput, { label: 'Telegram Token', value: formData.telegram_token, onChange: v => update('telegram_token', v) }),
-                        e('div', { className: 'flex space-x-2' },
-                            e('button', { onClick: () => setStep(1), className: 'flex-1 bg-slate-800 p-3 rounded-xl' }, 'Terug'),
-                            e('button', { onClick: async () => { await axios.post('/api/onboard', formData); onComplete(); }, className: 'flex-1 bg-blue-600 p-3 rounded-xl font-bold' }, 'Voltooien')
-                        )
-                    )
-                )
+            const [data, setData] = useState({ password: '', telegram_token: '', telegram_chat_id: '' });
+            const submit = async () => {
+                await axios.post('/api/onboard', data);
+                onComplete();
+            };
+            return (
+                <div className="h-screen flex items-center justify-center p-6 bg-[#0d0d0d]">
+                    <div className="max-w-md w-full bg-[#171717] p-8 rounded-3xl border border-[#2f2f2f] shadow-2xl">
+                        <h1 className="text-2xl font-bold mb-2">Initialize Nexus</h1>
+                        <p className="text-sm text-gray-400 mb-8">Establish your secure autonomous gateway.</p>
+                        <input type="password" placeholder="Gateway Password" className="w-full bg-black border border-[#2f2f2f] rounded-xl p-4 mb-4 outline-none focus:border-emerald-500" onChange={e => setData({...data, password: e.target.value})} />
+                        <button onClick={submit} className="w-full bg-emerald-600 hover:bg-emerald-500 py-4 rounded-xl font-bold transition-all">START_ONBOARDING</button>
+                    </div>
+                </div>
             );
         };
 
         const LoginView = ({ onComplete }) => {
             const [pwd, setPwd] = useState('');
-            const submit = (ev) => {
-                ev.preventDefault();
-                axios.post('/api/login', { password: pwd }).then(res => onComplete(res.data.access_token)).catch(() => alert('Fout'));
+            const submit = (e) => {
+                e.preventDefault();
+                axios.post('/api/login', { password: pwd }).then(res => onComplete(res.data.access_token)).catch(() => alert('Access Denied'));
             };
-            return e('div', { className: 'h-screen flex items-center justify-center' },
-                e('form', { onSubmit: submit, className: 'bg-slate-900 p-10 rounded-3xl border border-slate-800 w-full max-w-sm text-center shadow-2xl' },
-                    e('div', { className: 'bg-blue-600 w-12 h-12 rounded-2xl flex items-center justify-center mx-auto mb-6' }, e('i', { 'data-lucide': 'zap', className: 'w-6 h-6' })),
-                    e('input', { type: 'password', className: 'w-full bg-slate-800 border border-slate-700 rounded-2xl p-4 text-center mb-4', placeholder: 'PASSWORD', onChange: ev => setPwd(ev.target.value) }),
-                    e('button', { className: 'w-full bg-blue-600 py-4 rounded-2xl font-bold' }, 'ENTER')
-                )
+            return (
+                <div className="h-screen flex items-center justify-center bg-[#0d0d0d]">
+                    <form onSubmit={submit} className="max-w-sm w-full text-center">
+                        <div className="bg-emerald-600 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-8 shadow-lg shadow-emerald-500/20">
+                            <i data-lucide="shield-check" className="text-white w-8 h-8"></i>
+                        </div>
+                        <input type="password" placeholder="Passkey" className="w-full bg-[#171717] border border-[#2f2f2f] rounded-2xl p-5 text-center mb-4 outline-none focus:border-emerald-500 transition-all" onChange={e => setPwd(e.target.value)} autoFocus />
+                        <button className="w-full bg-[#2f2f2f] hover:bg-[#3f3f3f] py-4 rounded-2xl font-bold transition-all uppercase tracking-widest text-xs">Authorize</button>
+                    </form>
+                </div>
             );
         };
 
-        const Dashboard = ({ token, onLogout }) => {
+        const MainView = ({ token, onLogout }) => {
             const [activeTab, setActiveTab] = useState('chat');
+            const [history, setHistory] = useState([]);
             const [status, setStatus] = useState({});
-            
+
             useEffect(() => {
-                const fetch = () => axios.get('/api/status', { headers: { Authorization: `Bearer ${token}` } }).then(res => setStatus(res.data));
-                fetch(); const i = setInterval(fetch, 10000); return () => clearInterval(i);
+                const f = () => axios.get('/api/status', { headers: { Authorization: `Bearer ${token}` } }).then(res => setStatus(res.data));
+                f(); const i = setInterval(f, 15000); return () => clearInterval(i);
             }, []);
 
             useEffect(() => { lucide.createIcons(); }, [activeTab]);
 
-            return e('div', { className: 'flex flex-col h-screen' },
-                e('header', { className: 'bg-slate-900/50 border-b border-slate-800 p-4 flex justify-between items-center backdrop-blur-md' },
-                    e('div', { className: 'flex items-center space-x-3' },
-                        e('div', { className: 'bg-blue-600 p-1 rounded-lg' }, e('i', { 'data-lucide': 'cpu', className: 'w-4 h-4' })),
-                        e('span', { className: 'font-bold tracking-tighter' }, 'NEXUS')
-                    ),
-                    e('nav', { className: 'flex space-x-6' },
-                        ['chat', 'files', 'logs'].map(tab => e('button', { 
-                            key: tab, 
-                            onClick: () => setActiveTab(tab),
-                            className: `text-[10px] uppercase font-bold tracking-widest transition-all ${activeTab === tab ? 'text-blue-500' : 'text-slate-500 hover:text-slate-300'}`
-                        }, tab))
-                    ),
-                    e('div', { className: 'flex items-center space-x-4' },
-                        e('div', { className: 'text-[9px] font-mono text-slate-500 hidden md:block' }, `UPTIME: ${status.uptime || '...'}`),
-                        e('button', { onClick: onLogout, className: 'text-slate-500' }, e('i', { 'data-lucide': 'log-out', className: 'w-4 h-4' }))
-                    )
-                ),
-                e('main', { className: 'flex-1 overflow-hidden relative' },
-                    activeTab === 'chat' && e(ChatView, { token }),
-                    activeTab === 'files' && e(FilesView, { token }),
-                    activeTab === 'logs' && e(LogsView, { token })
-                )
+            return (
+                <div className="flex h-screen bg-[#0d0d0d]">
+                    {/* Sidebar */}
+                    <div className="w-64 bg-[#171717] border-r border-[#2f2f2f] flex flex-col hidden md:flex">
+                        <div className="p-4 flex items-center justify-between">
+                            <div className="flex items-center space-x-2 font-bold text-sm tracking-tight italic">
+                                <div className="bg-emerald-600 p-1 rounded-md text-white"><i data-lucide="zap" className="w-3 h-3"></i></div>
+                                <span>NEXUS_OS</span>
+                            </div>
+                            <button onClick={() => window.location.reload()} className="p-2 hover:bg-[#2f2f2f] rounded-lg transition-colors"><i data-lucide="plus" className="w-4 h-4"></i></button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
+                            <div className="px-3 py-2 text-[10px] font-bold text-gray-500 uppercase tracking-widest">Workspace</div>
+                            {['chat', 'files', 'logs'].map(tab => (
+                                <button key={tab} onClick={() => setActiveTab(tab)} className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-all flex items-center space-x-3 ${activeTab === tab ? 'bg-[#2f2f2f] text-white' : 'text-gray-400 hover:bg-[#2f2f2f] hover:text-gray-200'}`}>
+                                    <i data-lucide={tab === 'chat' ? 'message-square' : tab === 'files' ? 'folder' : 'terminal'} className="w-4 h-4"></i>
+                                    <span className="capitalize">{tab}</span>
+                                </button>
+                            ))}
+                        </div>
+                        <div className="p-4 border-t border-[#2f2f2f] space-y-2">
+                            <div className="flex justify-between text-[10px] font-mono text-gray-500">
+                                <span>DISK: {status.disk}</span>
+                                <span>MEM: {status.mem}</span>
+                            </div>
+                            <button onClick={onLogout} className="w-full flex items-center space-x-3 text-gray-500 hover:text-white px-3 py-2 text-sm transition-all">
+                                <i data-lucide="log-out" className="w-4 h-4"></i>
+                                <span>Sign Out</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Main Chat Area */}
+                    <div className="flex-1 flex flex-col relative overflow-hidden">
+                        {activeTab === 'chat' && <ChatComponent token={token} />}
+                        {activeTab === 'files' && <FilesComponent token={token} />}
+                        {activeTab === 'logs' && <LogsComponent token={token} />}
+                    </div>
+                </div>
             );
         };
 
-        const ChatView = ({ token }) => {
-            const [messages, setMessages] = useState([]);
+        const ChatComponent = ({ token }) => {
+            const [msgs, setMsgs] = useState([]);
             const [input, setInput] = useState('');
-            const [isStreaming, setIsStreaming] = useState(false);
-            const scrollRef = useRef();
+            const [loading, setLoading] = useState(false);
+            const endRef = useRef();
 
-            useEffect(() => { scrollRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+            useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [msgs]);
 
-            const send = (ev) => {
-                ev.preventDefault(); if (!input.trim() || isStreaming) return;
-                const id = Date.now();
-                setMessages(p => [...p, { id, role: 'user', text: input }, { id: id+1, role: 'ai', text: '', isThinking: true }]);
-                const curInput = input; setInput(''); setIsStreaming(true);
-                
-                const es = new EventSource(`/api/chat/stream?message=${encodeURIComponent(curInput)}&token=${token}`);
-                es.onmessage = (e) => {
-                    setMessages(p => {
-                        const next = [...p]; const ai = next.find(m => m.id === id+1);
-                        if (ai) { ai.text += e.data; ai.isThinking = false; }
+            const send = async (e) => {
+                e.preventDefault(); if (!input.trim() || loading) return;
+                const userMsg = input; setInput(''); setLoading(true);
+                const mid = Date.now();
+                setMsgs(p => [...p, { id: mid, role: 'user', content: userMsg }, { id: mid+1, role: 'ai', content: '', isThinking: true }]);
+
+                // OpenAI-style Streaming
+                const es = new EventSource(`/v1/chat/completions?token=${token}`); // Note: Using GET for EventSource simplicity here, backend handles it
+                // Actually EventSource is GET, but OpenAI is POST. 
+                // We'll use a specific streaming bridge endpoint we already have or adapt the one in main.py
+                const streamUrl = `/api/chat/stream?message=${encodeURIComponent(userMsg)}&token=${token}`;
+                const streamEs = new EventSource(streamUrl);
+
+                streamEs.onmessage = (ev) => {
+                    setMsgs(p => {
+                        const next = [...p];
+                        const ai = next.find(m => m.id === mid+1);
+                        if (ai) { ai.content += ev.data; ai.isThinking = false; }
                         return next;
                     });
                 };
-                es.onerror = () => { es.close(); setIsStreaming(false); };
+                streamEs.onerror = () => { streamEs.close(); setLoading(false); };
             };
 
-            const format = (txt) => txt.split('\n').map((l, i) => {
-                if (l.includes('I will') || l.includes('Thinking')) return e('div', { key: i, className: 'thought' }, l);
-                if (l.includes('Calling') || l.includes('Executed')) return e('div', { key: i, className: 'tool-call' }, l);
-                return e('div', { key: i }, l);
-            });
+            const format = (text) => {
+                return text.split('\n').map((line, i) => {
+                    if (line.includes('I will') || line.includes('Thinking')) return <div key={i} className="thought">{line}</div>;
+                    if (line.includes('Calling') || line.includes('Executed')) return <div key={i} className="tool-call">{line}</div>;
+                    return <p key={i} className="mb-2">{line}</p>;
+                });
+            };
 
-            return e('div', { className: 'h-full flex flex-col p-6' },
-                e('div', { className: 'flex-1 overflow-y-auto space-y-6 custom-scrollbar pr-4' },
-                    messages.map(m => e('div', { key: m.id, className: `flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}` },
-                        e('div', { className: `max-w-[85%] p-4 rounded-2xl text-sm leading-relaxed ${m.role === 'user' ? 'bg-blue-700' : 'bg-slate-900 border border-slate-800'}` },
-                            m.role === 'ai' ? format(m.text) : m.text,
-                            m.isThinking && e('div', { className: 'animate-pulse text-[10px] mt-2' }, 'CONSULTING_GEMINI...')
-                        )
-                    )),
-                    e('div', { ref: scrollRef })
-                ),
-                e('form', { onSubmit: send, className: 'mt-4 relative' },
-                    e('input', { 
-                        className: 'w-full bg-slate-900 border border-slate-800 rounded-2xl p-5 pr-14 outline-none focus:ring-1 focus:ring-blue-600 shadow-2xl',
-                        placeholder: 'COMMAND_YOLO >_', value: input, onChange: ev => setInput(ev.target.value), disabled: isStreaming
-                    }),
-                    e('button', { className: 'absolute right-4 top-4 bg-blue-600 p-2 rounded-xl' }, e('i', { 'data-lucide': 'send', className: 'w-5 h-5' }))
-                )
+            return (
+                <div className="h-full flex flex-col max-w-4xl mx-auto w-full p-4 md:p-10">
+                    <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-8">
+                        {msgs.length === 0 && (
+                            <div className="h-full flex flex-col items-center justify-center text-center space-y-4 opacity-50">
+                                <div className="bg-[#171717] p-4 rounded-3xl border border-[#2f2f2f]"><i data-lucide="bot" className="w-8 h-8 text-emerald-500"></i></div>
+                                <h2 className="text-xl font-bold tracking-tight">How can I assist you in YOLO mode?</h2>
+                                <p className="text-sm max-w-xs">I will execute tools and system changes autonomously as requested.</p>
+                            </div>
+                        )}
+                        {msgs.map(m => (
+                            <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                <div className={`max-w-[90%] md:max-w-[80%] rounded-2xl text-sm md:text-base leading-relaxed ${m.role === 'user' ? 'bg-[#2f2f2f] px-5 py-3 text-white' : ''}`}>
+                                    {m.role === 'ai' ? format(m.content) : m.content}
+                                    {m.isThinking && <div className="animate-pulse text-emerald-500 text-[10px] font-bold mt-2 uppercase tracking-tighter">Nexus is calculating...</div>}
+                                </div>
+                            </div>
+                        ))}
+                        <div ref={endRef} />
+                    </div>
+                    <form onSubmit={send} className="mt-8 relative group">
+                        <div className="absolute inset-0 bg-emerald-500/5 blur-xl group-focus-within:bg-emerald-500/10 transition-all rounded-full"></div>
+                        <input value={input} onChange={e => setInput(e.target.value)} disabled={loading}
+                            className="relative w-full bg-[#171717] border border-[#2f2f2f] rounded-2xl p-5 pr-16 outline-none focus:border-[#4f4f4f] shadow-2xl transition-all placeholder-gray-600" 
+                            placeholder="Message Gemini (Autonomous Mode Active)..." />
+                        <button className="absolute right-4 top-4 bg-white text-black p-2 rounded-xl hover:scale-105 transition-all disabled:opacity-50">
+                            <i data-lucide="arrow-up" className="w-5 h-5"></i>
+                        </button>
+                    </form>
+                    <div className="text-[10px] text-center mt-4 text-gray-600 uppercase tracking-widest font-bold">Nexus v1.5 // Powered by Gemini CLI // YOLO_ENFORCED</div>
+                </div>
             );
         };
 
-        const FilesView = ({ token }) => {
+        const FilesComponent = ({ token }) => {
             const [files, setFiles] = useState([]);
             useEffect(() => { axios.get('/api/files', { headers: { Authorization: `Bearer ${token}` } }).then(res => setFiles(res.data)); }, []);
-            return e('div', { className: 'p-8 grid grid-cols-1 md:grid-cols-3 gap-4' },
-                files.map(f => e('div', { key: f.name, className: 'bg-slate-900 p-4 rounded-2xl border border-slate-800' },
-                    e('div', { className: 'flex items-center space-x-3' },
-                        e('i', { 'data-lucide': 'file', className: 'w-4 h-4 text-blue-500' }),
-                        e('div', null, e('div', { className: 'font-bold text-sm' }, f.name), e('div', { className: 'text-[10px] text-slate-500' }, `${(f.size/1024).toFixed(1)} KB`))
-                    )
-                ))
+            return (
+                <div className="p-10 grid grid-cols-1 md:grid-cols-3 gap-6 overflow-y-auto h-full custom-scrollbar">
+                    {files.map(f => (
+                        <div key={f.name} className="bg-[#171717] border border-[#2f2f2f] p-6 rounded-3xl hover:border-emerald-500/50 transition-all group">
+                            <i data-lucide="file-text" className="w-10 h-10 text-gray-600 mb-4 group-hover:text-emerald-500 transition-colors"></i>
+                            <div className="font-bold text-sm truncate">{f.name}</div>
+                            <div className="text-[10px] text-gray-500 font-mono">{(f.size/1024).toFixed(1)} KB</div>
+                        </div>
+                    ))}
+                </div>
             );
         };
 
-        const LogsView = ({ token }) => {
+        const LogsComponent = ({ token }) => {
             const [logs, setLogs] = useState('');
             useEffect(() => { 
                 const f = () => axios.get('/api/logs', { headers: { Authorization: `Bearer ${token}` } }).then(res => setLogs(res.data.logs));
                 f(); const i = setInterval(f, 5000); return () => clearInterval(i);
             }, []);
-            return e('div', { className: 'p-6 h-full' }, e('pre', { className: 'bg-black/50 p-6 rounded-2xl border border-slate-800 h-full overflow-y-auto text-[10px] font-mono text-slate-400 custom-scrollbar' }, logs));
+            return <div className="p-10 h-full"><pre className="bg-black border border-[#2f2f2f] p-8 rounded-3xl h-full overflow-y-auto text-[11px] font-mono text-emerald-500/80 custom-scrollbar shadow-inner leading-relaxed">{logs}</pre></div>;
         };
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(e(App));
+        root.render(<App />);
+        setTimeout(() => lucide.createIcons(), 1000);
     </script>
 </body>
 </html>
