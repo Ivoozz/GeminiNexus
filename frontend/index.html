@@ -15,24 +15,26 @@
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: #0f172a; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
-        .thought { color: #94a3b8; font-style: italic; border-left: 2px solid #334155; padding-left: 0.75rem; margin-top: 0.5rem; margin-bottom: 0.5rem; }
-        .tool-call { color: #38bdf8; font-family: monospace; font-size: 0.85rem; background: #0f172a; padding: 0.25rem 0.5rem; border-radius: 0.25rem; }
+        .thought { color: #94a3b8; font-style: italic; border-left: 2px solid #334155; padding-left: 0.75rem; margin: 0.5rem 0; font-size: 0.85rem; }
+        .tool-call { color: #38bdf8; font-family: monospace; font-size: 0.75rem; background: #0f172a; padding: 0.2rem 0.4rem; border-radius: 0.25rem; margin: 0.2rem 0; display: block; }
     </style>
 </head>
-<body class="overflow-hidden">
+<body class="overflow-hidden text-slate-200">
     <div id="root"></div>
 
     <script type="text/javascript">
         const { useState, useEffect, useRef } = React;
+        const e = React.createElement;
 
-        const FormInput = ({ label, value, onChange, type="text", placeholder="" }) => (
-            <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-500 uppercase">{label}</label>
-                <input type={type} placeholder={placeholder} value={value}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl p-3 outline-none focus:ring-1 focus:ring-blue-500"
-                    onChange={e => onChange(e.target.value)} />
-            </div>
-        );
+        const FormInput = ({ label, value, onChange, type="text", placeholder="" }) => 
+            e('div', { className: 'space-y-1' },
+                e('label', { className: 'text-[10px] font-bold text-slate-500 uppercase tracking-wider' }, label),
+                e('input', { 
+                    type, placeholder, value,
+                    className: 'w-full bg-slate-900 border border-slate-800 rounded-xl p-3 outline-none focus:ring-1 focus:ring-blue-500 text-sm',
+                    onChange: ev => onChange(e.target ? ev.target.value : ev) 
+                })
+            );
 
         const App = () => {
             const [view, setView] = useState('loading');
@@ -42,180 +44,166 @@
                 axios.get('/api/setup-status').then(res => {
                     if (!res.data.onboarded) setView('setup');
                     else if (!token) setView('login');
-                    else setView('chat');
+                    else setView('dashboard');
                 }).catch(() => setView('login'));
             }, []);
 
-            if (view === 'loading') return <div className="h-screen flex items-center justify-center font-mono">INITIALIZING...</div>;
-            if (view === 'setup') return <SetupWizard onComplete={() => setView('login')} />;
-            if (view === 'login') return <LoginView onComplete={(t) => { setToken(t); localStorage.setItem('nexus_token', t); setView('chat'); }} />;
-            return <ChatView token={token} onLogout={() => { setToken(null); localStorage.removeItem('nexus_token'); setView('login'); }} />;
+            if (view === 'loading') return e('div', { className: 'h-screen flex items-center justify-center font-mono text-blue-500' }, 'INITIALIZING_NEXUS...');
+            if (view === 'setup') return e(SetupWizard, { onComplete: () => setView('login') });
+            if (view === 'login') return e(LoginView, { onComplete: (t) => { setToken(t); localStorage.setItem('nexus_token', t); setView('dashboard'); } });
+            return e(Dashboard, { token, onLogout: () => { setToken(null); localStorage.removeItem('nexus_token'); setView('login'); } });
         };
 
         const SetupWizard = ({ onComplete }) => {
             const [step, setStep] = useState(1);
-            const [formData, setFormData] = useState({ password: '', telegram_token: '', telegram_chat_id: '', smtp_host: '', smtp_port: '587', smtp_user: '', smtp_pass: '', imap_host: '', imap_port: '993', imap_user: '', imap_pass: '' });
+            const [formData, setFormData] = useState({ password: '', telegram_token: '', telegram_chat_id: '', smtp_host: '', smtp_port: '587', smtp_user: '', smtp_pass: '', imap_host: '', imap_port: '993' });
             const update = (f, v) => setFormData(p => ({ ...p, [f]: v }));
-            const submit = async () => {
-                try { await axios.post('/api/onboard', formData); onComplete(); }
-                catch (e) { alert('Fout: ' + e.response?.data?.detail); }
-            };
-
-            return (
-                <div className="h-screen flex items-center justify-center p-4">
-                    <div className="bg-slate-900 p-8 rounded-3xl border border-slate-800 w-full max-w-lg shadow-2xl">
-                        <div className="mb-8">
-                            <h1 className="text-2xl font-bold">GeminiNexus Setup</h1>
-                            <p className="text-sm text-slate-500">Stap {step} van 3</p>
-                        </div>
-                        {step === 1 && <div className="space-y-4">
-                            <FormInput label="Admin Wachtwoord" value={formData.password} onChange={v => update('password', v)} type="password" />
-                            <button onClick={() => setStep(2)} className="w-full bg-blue-600 p-4 rounded-xl font-bold">Volgende</button>
-                        </div>}
-                        {step === 2 && <div className="space-y-4">
-                            <FormInput label="Telegram Token" value={formData.telegram_token} onChange={v => update('telegram_token', v)} />
-                            <FormInput label="Chat ID" value={formData.telegram_chat_id} onChange={v => update('telegram_chat_id', v)} />
-                            <div className="flex space-x-2"><button onClick={() => setStep(1)} className="flex-1 bg-slate-800 p-4 rounded-xl">Terug</button>
-                            <button onClick={() => setStep(3)} className="flex-1 bg-blue-600 p-4 rounded-xl font-bold">Volgende</button></div>
-                        </div>}
-                        {step === 3 && <div className="space-y-4">
-                            <div className="grid grid-cols-2 gap-2"><FormInput label="SMTP" value={formData.smtp_host} onChange={v => update('smtp_host', v)} /><FormInput label="IMAP" value={formData.imap_host} onChange={v => update('imap_host', v)} /></div>
-                            <FormInput label="Email Gebruiker" value={formData.smtp_user} onChange={v => update('smtp_user', v)} />
-                            <FormInput label="Email Wachtwoord" value={formData.smtp_pass} onChange={v => update('smtp_pass', v)} type="password" />
-                            <div className="flex space-x-2"><button onClick={() => setStep(2)} className="flex-1 bg-slate-800 p-4 rounded-xl">Terug</button>
-                            <button onClick={submit} className="flex-1 bg-green-600 p-4 rounded-xl font-bold text-white">Afronden</button></div>
-                        </div>}
-                    </div>
-                </div>
+            
+            return e('div', { className: 'h-screen flex items-center justify-center p-4' },
+                e('div', { className: 'bg-slate-900 p-8 rounded-3xl border border-slate-800 w-full max-w-md shadow-2xl' },
+                    e('h1', { className: 'text-xl font-bold mb-6' }, 'GeminiNexus Setup'),
+                    step === 1 && e('div', { className: 'space-y-4' },
+                        e(FormInput, { label: 'Password', value: formData.password, onChange: v => update('password', v), type: 'password' }),
+                        e('button', { onClick: () => setStep(2), className: 'w-full bg-blue-600 p-3 rounded-xl font-bold' }, 'Volgende')
+                    ),
+                    step === 2 && e('div', { className: 'space-y-4' },
+                        e(FormInput, { label: 'Telegram Token', value: formData.telegram_token, onChange: v => update('telegram_token', v) }),
+                        e('div', { className: 'flex space-x-2' },
+                            e('button', { onClick: () => setStep(1), className: 'flex-1 bg-slate-800 p-3 rounded-xl' }, 'Terug'),
+                            e('button', { onClick: async () => { await axios.post('/api/onboard', formData); onComplete(); }, className: 'flex-1 bg-blue-600 p-3 rounded-xl font-bold' }, 'Voltooien')
+                        )
+                    )
+                )
             );
         };
 
         const LoginView = ({ onComplete }) => {
-            const [password, setPassword] = useState('');
-            const submit = async (e) => {
-                e.preventDefault();
-                try { const res = await axios.post('/api/login', { password }); onComplete(res.data.access_token); }
-                catch (e) { alert('Onjuist'); }
+            const [pwd, setPwd] = useState('');
+            const submit = (ev) => {
+                ev.preventDefault();
+                axios.post('/api/login', { password: pwd }).then(res => onComplete(res.data.access_token)).catch(() => alert('Fout'));
             };
-            return (
-                <div className="h-screen flex items-center justify-center">
-                    <div className="bg-slate-900 p-10 rounded-3xl border border-slate-800 w-full max-w-md text-center">
-                        <h1 className="text-3xl font-bold mb-8">GeminiNexus</h1>
-                        <form onSubmit={submit} className="space-y-4">
-                            <input type="password" placeholder="Wachtwoord" className="w-full bg-slate-800 border border-slate-700 rounded-2xl p-4 text-center outline-none focus:ring-1 focus:ring-blue-500" onChange={e => setPassword(e.target.value)} />
-                            <button className="w-full bg-blue-600 py-4 rounded-2xl font-bold">Enter</button>
-                        </form>
-                    </div>
-                </div>
+            return e('div', { className: 'h-screen flex items-center justify-center' },
+                e('form', { onSubmit: submit, className: 'bg-slate-900 p-10 rounded-3xl border border-slate-800 w-full max-w-sm text-center shadow-2xl' },
+                    e('div', { className: 'bg-blue-600 w-12 h-12 rounded-2xl flex items-center justify-center mx-auto mb-6' }, e('i', { 'data-lucide': 'zap', className: 'w-6 h-6' })),
+                    e('input', { type: 'password', className: 'w-full bg-slate-800 border border-slate-700 rounded-2xl p-4 text-center mb-4', placeholder: 'PASSWORD', onChange: ev => setPwd(ev.target.value) }),
+                    e('button', { className: 'w-full bg-blue-600 py-4 rounded-2xl font-bold' }, 'ENTER')
+                )
             );
         };
 
-        const ChatView = ({ token, onLogout }) => {
+        const Dashboard = ({ token, onLogout }) => {
+            const [activeTab, setActiveTab] = useState('chat');
+            const [status, setStatus] = useState({});
+            
+            useEffect(() => {
+                const fetch = () => axios.get('/api/status', { headers: { Authorization: `Bearer ${token}` } }).then(res => setStatus(res.data));
+                fetch(); const i = setInterval(fetch, 10000); return () => clearInterval(i);
+            }, []);
+
+            useEffect(() => { lucide.createIcons(); }, [activeTab]);
+
+            return e('div', { className: 'flex flex-col h-screen' },
+                e('header', { className: 'bg-slate-900/50 border-b border-slate-800 p-4 flex justify-between items-center backdrop-blur-md' },
+                    e('div', { className: 'flex items-center space-x-3' },
+                        e('div', { className: 'bg-blue-600 p-1 rounded-lg' }, e('i', { 'data-lucide': 'cpu', className: 'w-4 h-4' })),
+                        e('span', { className: 'font-bold tracking-tighter' }, 'NEXUS')
+                    ),
+                    e('nav', { className: 'flex space-x-6' },
+                        ['chat', 'files', 'logs'].map(tab => e('button', { 
+                            key: tab, 
+                            onClick: () => setActiveTab(tab),
+                            className: `text-[10px] uppercase font-bold tracking-widest transition-all ${activeTab === tab ? 'text-blue-500' : 'text-slate-500 hover:text-slate-300'}`
+                        }, tab))
+                    ),
+                    e('div', { className: 'flex items-center space-x-4' },
+                        e('div', { className: 'text-[9px] font-mono text-slate-500 hidden md:block' }, `UPTIME: ${status.uptime || '...'}`),
+                        e('button', { onClick: onLogout, className: 'text-slate-500' }, e('i', { 'data-lucide': 'log-out', className: 'w-4 h-4' }))
+                    )
+                ),
+                e('main', { className: 'flex-1 overflow-hidden relative' },
+                    activeTab === 'chat' && e(ChatView, { token }),
+                    activeTab === 'files' && e(FilesView, { token }),
+                    activeTab === 'logs' && e(LogsView, { token })
+                )
+            );
+        };
+
+        const ChatView = ({ token }) => {
             const [messages, setMessages] = useState([]);
             const [input, setInput] = useState('');
             const [isStreaming, setIsStreaming] = useState(false);
-            const [status, setStatus] = useState({ disk_usage: '...', memory_usage: '...' });
-            const chatEndRef = useRef(null);
+            const scrollRef = useRef();
 
-            useEffect(() => {
-                fetchStatus();
-                const i = setInterval(fetchStatus, 30000);
-                return () => clearInterval(i);
-            }, []);
+            useEffect(() => { scrollRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
-            useEffect(() => {
-                chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-                lucide.createIcons();
-            }, [messages]);
-
-            const fetchStatus = () => axios.get('/api/status', { headers: { Authorization: `Bearer ${token}` } }).then(res => setStatus(res.data)).catch(onLogout);
-
-            const send = (e) => {
-                e.preventDefault();
-                if (!input.trim() || isStreaming) return;
-
-                const userMsg = { id: Date.now(), role: 'user', text: input };
-                setMessages(prev => [...prev, userMsg]);
+            const send = (ev) => {
+                ev.preventDefault(); if (!input.trim() || isStreaming) return;
+                const id = Date.now();
+                setMessages(p => [...p, { id, role: 'user', text: input }, { id: id+1, role: 'ai', text: '', isThinking: true }]);
+                const curInput = input; setInput(''); setIsStreaming(true);
                 
-                const aiMsgId = Date.now() + 1;
-                setMessages(prev => [...prev, { id: aiMsgId, role: 'ai', text: '', isThinking: true }]);
-                
-                setIsStreaming(true);
-                const currentInput = input;
-                setInput('');
-
-                // Start SSE Stream
-                const eventSource = new EventSource(`/api/chat/stream?message=${encodeURIComponent(currentInput)}&token=${token}`);
-                
-                eventSource.onmessage = (event) => {
-                    const data = event.data;
-                    setMessages(prev => {
-                        const newMsgs = [...prev];
-                        const aiMsg = newMsgs.find(m => m.id === aiMsgId);
-                        if (aiMsg) {
-                            aiMsg.text += data;
-                            aiMsg.isThinking = false;
-                        }
-                        return newMsgs;
+                const es = new EventSource(`/api/chat/stream?message=${encodeURIComponent(curInput)}&token=${token}`);
+                es.onmessage = (e) => {
+                    setMessages(p => {
+                        const next = [...p]; const ai = next.find(m => m.id === id+1);
+                        if (ai) { ai.text += e.data; ai.isThinking = false; }
+                        return next;
                     });
                 };
-
-                eventSource.onerror = (err) => {
-                    eventSource.close();
-                    setIsStreaming(false);
-                };
-
-                // In some cases, we need a way to detect the end of stream
-                // The CLI doesn't always send an "end" signal, so we rely on the connection closing
+                es.onerror = () => { es.close(); setIsStreaming(false); };
             };
 
-            const formatMessage = (text) => {
-                // Heuristics for thoughts and tool calls
-                return text.split('\n').map((line, i) => {
-                    if (line.includes('I will') || line.includes('Thinking')) return <div key={i} className="thought">{line}</div>;
-                    if (line.includes('Calling tool') || line.includes('Executed')) return <div key={i} className="tool-call">{line}</div>;
-                    return <div key={i}>{line}</div>;
-                });
-            };
+            const format = (txt) => txt.split('\n').map((l, i) => {
+                if (l.includes('I will') || l.includes('Thinking')) return e('div', { key: i, className: 'thought' }, l);
+                if (l.includes('Calling') || l.includes('Executed')) return e('div', { key: i, className: 'tool-call' }, l);
+                return e('div', { key: i }, l);
+            });
 
-            return (
-                <div className="flex flex-col h-screen">
-                    <header className="bg-slate-900 border-b border-slate-800 p-4 flex justify-between items-center">
-                        <div className="flex items-center space-x-2">
-                            <div className="bg-blue-600 p-1 rounded-lg"><i data-lucide="zap" className="w-4 h-4 text-white"></i></div>
-                            <span className="font-bold tracking-tighter text-lg italic">GEMINI NEXUS <span className="text-[10px] text-red-500 bg-red-500/10 px-1 rounded not-italic font-bold">YOLO</span></span>
-                        </div>
-                        <div className="flex items-center space-x-4">
-                            <div className="hidden sm:block text-[10px] text-slate-500 font-mono">D:{status.disk_usage} R:{status.memory_usage}</div>
-                            <button onClick={onLogout} className="text-slate-500 hover:text-white"><i data-lucide="log-out" className="w-4 h-4"></i></button>
-                        </div>
-                    </header>
-                    <main className="flex-1 container mx-auto max-w-5xl p-6 flex flex-col overflow-hidden">
-                        <div className="flex-1 overflow-y-auto mb-6 pr-4 space-y-6 custom-scrollbar">
-                            {messages.map(msg => (
-                                <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                    <div className={`max-w-[90%] p-4 rounded-2xl text-sm leading-relaxed ${msg.role === 'user' ? 'bg-blue-700 text-white shadow-lg' : 'bg-slate-900 border border-slate-800'}`}>
-                                        {msg.role === 'ai' ? formatMessage(msg.text) : msg.text}
-                                        {msg.isThinking && <div className="animate-pulse flex space-x-2 mt-2"><div className="w-1 h-1 bg-slate-500 rounded-full"></div><div className="w-1 h-1 bg-slate-500 rounded-full"></div></div>}
-                                    </div>
-                                </div>
-                            ))}
-                            <div ref={chatEndRef}></div>
-                        </div>
-                        <form onSubmit={send} className="relative mb-2">
-                            <input type="text" value={input} onChange={e => setInput(e.target.value)} disabled={isStreaming}
-                                placeholder={isStreaming ? "AI is bezig met autonome taken..." : "Geef een commando (YOLO mode actief)..."} 
-                                className="w-full bg-slate-900 border border-slate-800 rounded-2xl p-5 pr-14 outline-none focus:ring-1 focus:ring-blue-600 shadow-2xl disabled:opacity-50" />
-                            <button className="absolute right-4 top-4 bg-blue-600 p-2 rounded-xl hover:bg-blue-500 shadow-lg"><i data-lucide="send" className="w-5 h-5"></i></button>
-                        </form>
-                    </main>
-                </div>
+            return e('div', { className: 'h-full flex flex-col p-6' },
+                e('div', { className: 'flex-1 overflow-y-auto space-y-6 custom-scrollbar pr-4' },
+                    messages.map(m => e('div', { key: m.id, className: `flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}` },
+                        e('div', { className: `max-w-[85%] p-4 rounded-2xl text-sm leading-relaxed ${m.role === 'user' ? 'bg-blue-700' : 'bg-slate-900 border border-slate-800'}` },
+                            m.role === 'ai' ? format(m.text) : m.text,
+                            m.isThinking && e('div', { className: 'animate-pulse text-[10px] mt-2' }, 'CONSULTING_GEMINI...')
+                        )
+                    )),
+                    e('div', { ref: scrollRef })
+                ),
+                e('form', { onSubmit: send, className: 'mt-4 relative' },
+                    e('input', { 
+                        className: 'w-full bg-slate-900 border border-slate-800 rounded-2xl p-5 pr-14 outline-none focus:ring-1 focus:ring-blue-600 shadow-2xl',
+                        placeholder: 'COMMAND_YOLO >_', value: input, onChange: ev => setInput(ev.target.value), disabled: isStreaming
+                    }),
+                    e('button', { className: 'absolute right-4 top-4 bg-blue-600 p-2 rounded-xl' }, e('i', { 'data-lucide': 'send', className: 'w-5 h-5' }))
+                )
             );
         };
 
+        const FilesView = ({ token }) => {
+            const [files, setFiles] = useState([]);
+            useEffect(() => { axios.get('/api/files', { headers: { Authorization: `Bearer ${token}` } }).then(res => setFiles(res.data)); }, []);
+            return e('div', { className: 'p-8 grid grid-cols-1 md:grid-cols-3 gap-4' },
+                files.map(f => e('div', { key: f.name, className: 'bg-slate-900 p-4 rounded-2xl border border-slate-800' },
+                    e('div', { className: 'flex items-center space-x-3' },
+                        e('i', { 'data-lucide': 'file', className: 'w-4 h-4 text-blue-500' }),
+                        e('div', null, e('div', { className: 'font-bold text-sm' }, f.name), e('div', { className: 'text-[10px] text-slate-500' }, `${(f.size/1024).toFixed(1)} KB`))
+                    )
+                ))
+            );
+        };
+
+        const LogsView = ({ token }) => {
+            const [logs, setLogs] = useState('');
+            useEffect(() => { 
+                const f = () => axios.get('/api/logs', { headers: { Authorization: `Bearer ${token}` } }).then(res => setLogs(res.data.logs));
+                f(); const i = setInterval(f, 5000); return () => clearInterval(i);
+            }, []);
+            return e('div', { className: 'p-6 h-full' }, e('pre', { className: 'bg-black/50 p-6 rounded-2xl border border-slate-800 h-full overflow-y-auto text-[10px] font-mono text-slate-400 custom-scrollbar' }, logs));
+        };
+
         const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
-        setTimeout(() => lucide.createIcons(), 500);
+        root.render(e(App));
     </script>
 </body>
 </html>

@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Depends, Security, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 import os
@@ -8,31 +8,34 @@ import logging
 import time
 import secrets
 import json
+import traceback
+import bcrypt
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from dotenv import load_dotenv, set_key
 from .gemini_bridge import stream_gemini
 import subprocess
 from sse_starlette.sse import EventSourceResponse
 
-# Load environment variables
-ENV_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
+# Paths
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+ENV_FILE = os.path.join(BASE_DIR, ".env")
+DATA_DIR = os.path.join(BASE_DIR, "data")
+os.makedirs(DATA_DIR, exist_ok=True)
+
 load_dotenv(ENV_FILE)
 
 # Configuration
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = "HS256"
 
-# Setup hashing & security
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-security = HTTPBearer()
-logging.basicConfig(level=logging.INFO)
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("GeminiNexus")
 
 app = FastAPI(title="GeminiNexus AI Assistant")
 
-# Serve static files (frontend)
-frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
+# Serve static files
+frontend_path = os.path.join(BASE_DIR, "frontend")
 app.mount("/static", StaticFiles(directory=frontend_path), name="static")
 
 class OnboardRequest(BaseModel):
@@ -48,31 +51,19 @@ class OnboardRequest(BaseModel):
     imap_user: str = ""
     imap_pass: str = ""
 
-class LoginRequest(BaseModel):
-    password: str
+# Security Helpers
+security = HTTPBearer()
 
-class ChatRequest(BaseModel):
-    message: str
-
-# Helper functions
 def get_password_hash():
     load_dotenv(ENV_FILE)
     pwd_hash = os.getenv("PASSWORD_HASH")
-    if pwd_hash and pwd_hash.startswith("$2b$"):
-        return pwd_hash
-    return None
-
-def create_access_token(data: dict):
-    to_encode = data.copy()
-    expire = time.time() + (3600 * 24) 
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return pwd_hash if pwd_hash and pwd_hash.startswith("$2b$") else None
 
 def verify_token(token: str):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         return payload
-    except JWTError:
+    except:
         return None
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Security(security)):
@@ -92,64 +83,62 @@ async def setup_status():
 @app.post("/api/onboard")
 async def onboard(request: OnboardRequest):
     if get_password_hash():
-        raise HTTPException(status_code=400, detail="App is al geconfigureerd.")
+        raise HTTPException(status_code=400, detail="Al geconfigureerd")
     
-    hashed_pwd = pwd_context.hash(request.password)
+    hashed_pwd = bcrypt.hashpw(request.password.encode(), bcrypt.gensalt()).decode()
     
     if not os.path.exists(ENV_FILE):
         with open(ENV_FILE, "w") as f:
             f.write(f"SECRET_KEY={secrets.token_urlsafe(32)}\n")
     
     set_key(ENV_FILE, "PASSWORD_HASH", hashed_pwd)
-    
-    # Optional fields
-    if request.telegram_token: set_key(ENV_FILE, "TELEGRAM_TOKEN", request.telegram_token)
-    if request.telegram_chat_id: set_key(ENV_FILE, "TELEGRAM_CHAT_ID", request.telegram_chat_id)
-    if request.smtp_host: set_key(ENV_FILE, "SMTP_HOST", request.smtp_host)
-    if request.smtp_port: set_key(ENV_FILE, "SMTP_PORT", request.smtp_port)
-    if request.smtp_user: set_key(ENV_FILE, "SMTP_USER", request.smtp_user)
-    if request.smtp_pass: set_key(ENV_FILE, "SMTP_PASS", request.smtp_pass)
-    if request.imap_host: set_key(ENV_FILE, "IMAP_HOST", request.imap_host)
-    if request.imap_port: set_key(ENV_FILE, "IMAP_PORT", request.imap_port)
-    if request.imap_user: set_key(ENV_FILE, "IMAP_USER", request.imap_user)
-    if request.imap_pass: set_key(ENV_FILE, "IMAP_PASS", request.imap_pass)
-    
+    # Save other keys...
+    fields = request.dict()
+    for key, val in fields.items():
+        if key != "password" and val:
+            set_key(ENV_FILE, key.upper(), str(val))
+            
     return {"status": "success"}
 
 @app.post("/api/login")
-async def login(request: LoginRequest):
+async def login(request: dict):
+    pwd = request.get("password")
     current_hash = get_password_hash()
-    if not current_hash or not pwd_context.verify(request.password, current_hash):
-        raise HTTPException(status_code=401, detail="Onjuist wachtwoord")
-    
-    token = create_access_token(data={"sub": "admin"})
-    return {"access_token": token, "token_type": "bearer"}
+    if current_hash and bcrypt.checkpw(pwd.encode(), current_hash.encode()):
+        token = jwt.encode({"sub": "admin", "exp": time.time() + 86400}, SECRET_KEY, algorithm=ALGORITHM)
+        return {"access_token": token}
+    raise HTTPException(status_code=401)
 
 @app.get("/api/chat/stream")
 async def chat_stream(request: Request, message: str, token: str):
-    """
-    Streaming endpoint using SSE.
-    """
-    if not verify_token(token):
-        raise HTTPException(status_code=403, detail="Ongeldig token")
-
-    async def event_generator():
+    if not verify_token(token): raise HTTPException(status_code=403)
+    async def gen():
         for line in stream_gemini(message):
-            # Check if client is still connected
-            if await request.is_disconnected():
-                logger.info("Client disconnected from stream.")
-                break
-            
-            # Yield data in SSE format
+            if await request.is_disconnected(): break
             yield {"data": line}
-
-    return EventSourceResponse(event_generator())
+    return EventSourceResponse(gen())
 
 @app.get("/api/status")
 async def system_status(user: dict = Depends(get_current_user)):
     try:
-        disk = subprocess.check_output(["df", "-h", "/"]).decode("utf-8").split("\n")[1].split()
-        mem = subprocess.check_output(["free", "-m"]).decode("utf-8").split("\n")[1].split()
-        return {"status": "online", "disk_usage": disk[4], "memory_usage": f"{mem[2]}MB / {mem[1]}MB"}
-    except:
-        return {"status": "error"}
+        disk = subprocess.check_output(["df", "-h", "/"]).decode().split("\n")[1].split()[4]
+        mem = subprocess.check_output(["free", "-m"]).decode().split("\n")[1].split()
+        return {"disk": disk, "mem": f"{mem[2]}MB / {mem[1]}MB", "uptime": subprocess.check_output(["uptime", "-p"]).decode().strip()}
+    except: return {"status": "error"}
+
+# NEW: File Explorer API
+@app.get("/api/files")
+async def list_files(user: dict = Depends(get_current_user)):
+    files = []
+    for f in os.listdir(DATA_DIR):
+        path = os.path.join(DATA_DIR, f)
+        files.append({"name": f, "size": os.path.getsize(path), "mtime": os.path.getmtime(path)})
+    return files
+
+# NEW: Log Viewer API
+@app.get("/api/logs")
+async def get_logs(user: dict = Depends(get_current_user)):
+    try:
+        logs = subprocess.check_output(["journalctl", "-u", "gemininexus", "-n", "50", "--no-pager"]).decode()
+        return {"logs": logs}
+    except: return {"logs": "Kon logs niet ophalen."}
