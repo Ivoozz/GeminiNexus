@@ -1,6 +1,6 @@
 import subprocess
-import shlex
 import logging
+import re
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -8,16 +8,15 @@ logger = logging.getLogger("GeminiBridge")
 
 def ask_gemini(prompt: str) -> str:
     """
-    Calls the 'gemini' CLI tool with the given prompt and returns the output.
-    Uses the existing authenticated CLI session.
+    Calls the 'gemini' CLI and filters out internal CLI noise.
     """
     try:
-        # Prepare the command. We use shlex for safe shell splitting.
-        cmd = ["gemini", prompt]
+        # We voegen een kleine instructie toe aan de prompt voor schone output
+        system_suffix = "\n(Antwoord direct en beknopt, zonder uitleg over je proces of tools.)"
+        cmd = ["gemini", prompt + system_suffix]
         
-        logger.info(f"Sending prompt to Gemini CLI: {prompt[:50]}...")
+        logger.info(f"Sending prompt to Gemini CLI...")
         
-        # Run the command and capture output
         result = subprocess.run(
             cmd,
             capture_output=True,
@@ -25,10 +24,33 @@ def ask_gemini(prompt: str) -> str:
             check=True
         )
         
-        if result.stderr:
-            logger.warning(f"Gemini CLI stderr: {result.stderr}")
+        raw_output = result.stdout.strip()
+        
+        # Opschonen van de output:
+        # 1. Verwijder MCP waarschuwingen
+        # 2. Verwijder "I will ..." zinnen (de interne planning van de CLI)
+        # 3. Verwijder lege regels aan het begin
+        
+        lines = raw_output.split('\n')
+        cleaned_lines = []
+        
+        for line in lines:
+            # Filter MCP meldingen
+            if "MCP issues detected" in line or "/mcp list" in line:
+                continue
+            # Filter de "I will search/check/etc" gedachten
+            if re.match(r"^(I|i) will\s", line.strip()):
+                continue
+            # Filter markdown-achtige proces meldingen
+            if line.strip().startswith("Thinking...") or line.strip().startswith("Searching..."):
+                continue
+                
+            cleaned_lines.append(line)
             
-        return result.stdout.strip()
+        final_output = '\n'.join(cleaned_lines).strip()
+        
+        # Als er na filtering niets overblijft, geef de raw output (voor de zekerheid)
+        return final_output if final_output else raw_output
         
     except subprocess.CalledProcessError as e:
         logger.error(f"Error calling Gemini CLI: {e.stderr}")
@@ -36,8 +58,3 @@ def ask_gemini(prompt: str) -> str:
     except Exception as e:
         logger.error(f"Unexpected error: {str(e)}")
         return f"Er is een onverwachte fout opgetreden: {str(e)}"
-
-if __name__ == "__main__":
-    # Test call
-    response = ask_gemini("Hallo, wie ben je?")
-    print(f"Gemini antwoordt: {response}")
