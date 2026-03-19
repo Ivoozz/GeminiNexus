@@ -54,7 +54,6 @@
                 <div className="h-screen flex items-center justify-center p-6 bg-[#0d0d0d]">
                     <div className="max-w-md w-full bg-[#171717] p-8 rounded-3xl border border-[#2f2f2f] shadow-2xl">
                         <h1 className="text-2xl font-bold mb-2">Initialize Nexus</h1>
-                        <p className="text-sm text-gray-400 mb-8">Establish your secure autonomous gateway.</p>
                         <input type="password" placeholder="Gateway Password" className="w-full bg-black border border-[#2f2f2f] rounded-xl p-4 mb-4 outline-none focus:border-emerald-500" onChange={e => setData({...data, password: e.target.value})} />
                         <button onClick={submit} className="w-full bg-emerald-600 hover:bg-emerald-500 py-4 rounded-xl font-bold transition-all">START_ONBOARDING</button>
                     </div>
@@ -71,11 +70,9 @@
             return (
                 <div className="h-screen flex items-center justify-center bg-[#0d0d0d]">
                     <form onSubmit={submit} className="max-w-sm w-full text-center">
-                        <div className="bg-emerald-600 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-8 shadow-lg shadow-emerald-500/20">
-                            <i data-lucide="shield-check" className="text-white w-8 h-8"></i>
-                        </div>
-                        <input type="password" placeholder="Passkey" className="w-full bg-[#171717] border border-[#2f2f2f] rounded-2xl p-5 text-center mb-4 outline-none focus:border-emerald-500 transition-all" onChange={e => setPwd(e.target.value)} autoFocus />
-                        <button className="w-full bg-[#2f2f2f] hover:bg-[#3f3f3f] py-4 rounded-2xl font-bold transition-all uppercase tracking-widest text-xs">Authorize</button>
+                        <div className="bg-emerald-600 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-8 shadow-lg shadow-emerald-500/20"><i data-lucide="shield-check" className="text-white w-8 h-8"></i></div>
+                        <input type="password" placeholder="Passkey" className="w-full bg-[#171717] border border-[#2f2f2f] rounded-2xl p-5 text-center mb-4 outline-none focus:border-emerald-500" onChange={e => setPwd(e.target.value)} autoFocus />
+                        <button className="w-full bg-[#2f2f2f] py-4 rounded-2xl font-bold uppercase tracking-widest text-xs">Authorize</button>
                     </form>
                 </div>
             );
@@ -83,39 +80,94 @@
 
         const MainView = ({ token, onLogout }) => {
             const [activeTab, setActiveTab] = useState('chat');
+            const [chats, setChats] = useState(JSON.parse(localStorage.getItem('nexus_chats') || '[]'));
+            const [activeChatId, setActiveChatId] = useState(localStorage.getItem('nexus_active_chat') || null);
             const [status, setStatus] = useState({});
+
+            useEffect(() => {
+                localStorage.setItem('nexus_chats', JSON.stringify(chats));
+            }, [chats]);
+
+            useEffect(() => {
+                localStorage.setItem('nexus_active_chat', activeChatId);
+            }, [activeChatId]);
 
             useEffect(() => {
                 const f = () => axios.get('/api/status', { headers: { Authorization: `Bearer ${token}` } }).then(res => setStatus(res.data));
                 f(); const i = setInterval(f, 15000); return () => clearInterval(i);
             }, []);
 
-            useEffect(() => { lucide.createIcons(); }, [activeTab]);
+            useEffect(() => { lucide.createIcons(); }, [activeTab, chats, activeChatId]);
+
+            const createNewChat = () => {
+                const newChat = { id: Date.now().toString(), title: 'New Conversation', messages: [], timestamp: Date.now() };
+                setChats([newChat, ...chats]);
+                setActiveChatId(newChat.id);
+                setActiveTab('chat');
+            };
+
+            const deleteChat = (id, e) => {
+                e.stopPropagation();
+                const updated = chats.filter(c => m.id !== id);
+                setChats(chats.filter(c => c.id !== id));
+                if (activeChatId === id) setActiveChatId(null);
+            };
+
+            const updateChatMessages = (id, messages) => {
+                setChats(prev => prev.map(c => {
+                    if (c.id === id) {
+                        let title = c.title;
+                        if (c.title === 'New Conversation' && messages.length > 0) {
+                            title = messages[0].content.substring(0, 30) + (messages[0].content.length > 30 ? '...' : '');
+                        }
+                        return { ...c, messages, title };
+                    }
+                    return c;
+                }));
+            };
+
+            const currentChat = chats.find(c => c.id === activeChatId);
 
             return (
                 <div className="flex h-screen bg-[#0d0d0d]">
                     {/* Sidebar */}
                     <div className="w-64 bg-[#171717] border-r border-[#2f2f2f] flex flex-col hidden md:flex">
                         <div className="p-4 flex items-center justify-between">
-                            <div className="flex items-center space-x-2 font-bold text-sm tracking-tight italic">
+                            <div className="flex items-center space-x-2 font-bold text-sm italic">
                                 <div className="bg-emerald-600 p-1 rounded-md text-white"><i data-lucide="zap" className="w-3 h-3"></i></div>
                                 <span>NEXUS_OS</span>
                             </div>
-                            <button onClick={() => window.location.reload()} className="p-2 hover:bg-[#2f2f2f] rounded-lg transition-colors"><i data-lucide="refresh-cw" className="w-4 h-4"></i></button>
+                            <button onClick={createNewChat} className="p-2 hover:bg-[#2f2f2f] rounded-lg transition-colors text-emerald-500"><i data-lucide="plus-circle" className="w-5 h-5"></i></button>
                         </div>
+                        
                         <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
-                            <div className="px-3 py-2 text-[10px] font-bold text-gray-500 uppercase tracking-widest">Workspace</div>
-                            {['chat', 'files', 'logs'].map(tab => (
+                            <div className="px-3 py-2 text-[10px] font-bold text-gray-500 uppercase tracking-widest">Recent Chats</div>
+                            {chats.map(chat => (
+                                <div key={chat.id} onClick={() => { setActiveChatId(chat.id); setActiveTab('chat'); }}
+                                    className={`group relative w-full text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-all flex items-center justify-between ${activeChatId === chat.id && activeTab === 'chat' ? 'bg-[#2f2f2f] text-white' : 'text-gray-400 hover:bg-[#2f2f2f] hover:text-gray-200'}`}>
+                                    <div className="flex items-center space-x-3 truncate">
+                                        <i data-lucide="message-square" className="w-3 h-3 flex-shrink-0"></i>
+                                        <span className="truncate">{chat.title}</span>
+                                    </div>
+                                    <button onClick={(e) => deleteChat(chat.id, e)} className="opacity-0 group-hover:opacity-100 hover:text-red-500 transition-all p-1">
+                                        <i data-lucide="x" className="w-3 h-3"></i>
+                                    </button>
+                                </div>
+                            ))}
+
+                            <div className="px-3 py-2 mt-4 text-[10px] font-bold text-gray-500 uppercase tracking-widest">System</div>
+                            {['files', 'logs'].map(tab => (
                                 <button key={tab} onClick={() => setActiveTab(tab)} className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-all flex items-center space-x-3 ${activeTab === tab ? 'bg-[#2f2f2f] text-white' : 'text-gray-400 hover:bg-[#2f2f2f] hover:text-gray-200'}`}>
-                                    <i data-lucide={tab === 'chat' ? 'message-square' : tab === 'files' ? 'folder' : 'terminal'} className="w-4 h-4"></i>
+                                    <i data-lucide={tab === 'files' ? 'folder' : 'terminal'} className="w-4 h-4"></i>
                                     <span className="capitalize">{tab}</span>
                                 </button>
                             ))}
                         </div>
+
                         <div className="p-4 border-t border-[#2f2f2f] space-y-2">
-                            <div className="flex justify-between text-[10px] font-mono text-gray-500">
-                                <span>DISK: {status.disk}</span>
-                                <span>MEM: {status.mem}</span>
+                            <div className="flex justify-between text-[9px] font-mono text-gray-500">
+                                <span>D: {status.disk}</span>
+                                <span>M: {status.mem}</span>
                             </div>
                             <button onClick={onLogout} className="w-full flex items-center space-x-3 text-gray-500 hover:text-white px-3 py-2 text-sm transition-all">
                                 <i data-lucide="log-out" className="w-4 h-4"></i>
@@ -124,10 +176,24 @@
                         </div>
                     </div>
 
-                    {/* Main Area with persistent tabs */}
+                    {/* Main Content */}
                     <div className="flex-1 flex flex-col relative overflow-hidden">
                         <div className={`flex-1 ${activeTab === 'chat' ? 'block' : 'hidden'}`}>
-                            <ChatComponent token={token} />
+                            {activeChatId ? (
+                                <ChatComponent 
+                                    key={activeChatId} 
+                                    token={token} 
+                                    initialMessages={currentChat?.messages || []}
+                                    onMessagesUpdate={(msgs) => updateChatMessages(activeChatId, msgs)}
+                                />
+                            ) : (
+                                <div className="h-full flex flex-col items-center justify-center text-center opacity-50">
+                                    <div className="bg-[#171717] p-6 rounded-3xl border border-[#2f2f2f] mb-4 cursor-pointer hover:border-emerald-500 transition-all" onClick={createNewChat}>
+                                        <i data-lucide="plus" className="w-8 h-8 text-emerald-500"></i>
+                                    </div>
+                                    <h2 className="text-xl font-bold tracking-tight">Start a new conversation</h2>
+                                </div>
+                            )}
                         </div>
                         <div className={`flex-1 ${activeTab === 'files' ? 'block' : 'hidden'}`}>
                             <FilesComponent token={token} />
@@ -140,24 +206,25 @@
             );
         };
 
-        const ChatComponent = ({ token }) => {
-            const [msgs, setMsgs] = useState([]);
+        const ChatComponent = ({ token, initialMessages, onMessagesUpdate }) => {
+            const [msgs, setMsgs] = useState(initialMessages);
             const [input, setInput] = useState('');
             const [loading, setLoading] = useState(false);
             const endRef = useRef();
 
-            useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [msgs]);
+            useEffect(() => { onMessagesUpdate(msgs); endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [msgs]);
 
             const send = async (e) => {
                 e.preventDefault(); if (!input.trim() || loading) return;
                 const userMsg = input; setInput(''); setLoading(true);
                 const mid = Date.now();
-                setMsgs(p => [...p, { id: mid, role: 'user', content: userMsg }, { id: mid+1, role: 'ai', content: '', isThinking: true }]);
+                const newMsgs = [...msgs, { id: mid, role: 'user', content: userMsg }, { id: mid+1, role: 'ai', content: '', isThinking: true }];
+                setMsgs(newMsgs);
 
                 const streamUrl = `/api/chat/stream?message=${encodeURIComponent(userMsg)}&token=${token}`;
-                const streamEs = new EventSource(streamUrl);
+                const es = new EventSource(streamUrl);
 
-                streamEs.onmessage = (ev) => {
+                es.onmessage = (ev) => {
                     setMsgs(p => {
                         const next = [...p];
                         const ai = next.find(m => m.id === mid+1);
@@ -165,7 +232,7 @@
                         return next;
                     });
                 };
-                streamEs.onerror = () => { streamEs.close(); setLoading(false); };
+                es.onerror = () => { es.close(); setLoading(false); };
             };
 
             const format = (text) => {
@@ -179,18 +246,11 @@
             return (
                 <div className="h-full flex flex-col max-w-4xl mx-auto w-full p-4 md:p-10">
                     <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-8">
-                        {msgs.length === 0 && (
-                            <div className="h-full flex flex-col items-center justify-center text-center space-y-4 opacity-50">
-                                <div className="bg-[#171717] p-4 rounded-3xl border border-[#2f2f2f]"><i data-lucide="bot" className="w-8 h-8 text-emerald-500"></i></div>
-                                <h2 className="text-xl font-bold tracking-tight">System Ready</h2>
-                                <p className="text-sm max-w-xs">Autonomous YOLO mode is active. All tool executions are authorized.</p>
-                            </div>
-                        )}
                         {msgs.map(m => (
                             <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                                 <div className={`max-w-[90%] md:max-w-[80%] rounded-2xl text-sm md:text-base leading-relaxed ${m.role === 'user' ? 'bg-[#2f2f2f] px-5 py-3 text-white' : ''}`}>
                                     {m.role === 'ai' ? format(m.content) : m.content}
-                                    {m.isThinking && <div className="animate-pulse text-emerald-500 text-[10px] font-bold mt-2 uppercase tracking-tighter">Nexus is calculating...</div>}
+                                    {m.isThinking && <div className="animate-pulse text-emerald-500 text-[10px] font-bold mt-2 uppercase tracking-tighter">Nexus processing...</div>}
                                 </div>
                             </div>
                         ))}
@@ -200,12 +260,9 @@
                         <div className="absolute inset-0 bg-emerald-500/5 blur-xl group-focus-within:bg-emerald-500/10 transition-all rounded-full"></div>
                         <input value={input} onChange={e => setInput(e.target.value)} disabled={loading}
                             className="relative w-full bg-[#171717] border border-[#2f2f2f] rounded-2xl p-5 pr-16 outline-none focus:border-[#4f4f4f] shadow-2xl transition-all placeholder-gray-600" 
-                            placeholder="Message Gemini (Autonomous Mode Active)..." />
-                        <button className="absolute right-4 top-4 bg-white text-black p-2 rounded-xl hover:scale-105 transition-all disabled:opacity-50">
-                            <i data-lucide="arrow-up" className="w-5 h-5"></i>
-                        </button>
+                            placeholder="Type a message (YOLO_MODE active)..." />
+                        <button className="absolute right-4 top-4 bg-white text-black p-2 rounded-xl hover:scale-105 transition-all disabled:opacity-50"><i data-lucide="arrow-up" className="w-5 h-5"></i></button>
                     </form>
-                    <div className="text-[10px] text-center mt-4 text-gray-600 uppercase tracking-widest font-bold">Nexus OS // YOLO_ENFORCED</div>
                 </div>
             );
         };
@@ -215,7 +272,7 @@
             useEffect(() => { axios.get('/api/files', { headers: { Authorization: `Bearer ${token}` } }).then(res => setFiles(res.data)); }, []);
             return (
                 <div className="p-10 grid grid-cols-1 md:grid-cols-3 gap-6 overflow-y-auto h-full custom-scrollbar">
-                    {files.length === 0 && <div className="col-span-3 text-center text-gray-500 py-20 italic">No files in sandbox.</div>}
+                    {files.length === 0 && <div className="col-span-3 text-center text-gray-500 py-20 italic">Empty sandbox.</div>}
                     {files.map(f => (
                         <div key={f.name} className="bg-[#171717] border border-[#2f2f2f] p-6 rounded-3xl hover:border-emerald-500/50 transition-all group">
                             <i data-lucide="file-text" className="w-10 h-10 text-gray-600 mb-4 group-hover:text-emerald-500 transition-colors"></i>
@@ -233,7 +290,7 @@
                 const f = () => axios.get('/api/logs', { headers: { Authorization: `Bearer ${token}` } }).then(res => setLogs(res.data.logs));
                 f(); const i = setInterval(f, 5000); return () => clearInterval(i);
             }, []);
-            return <div className="p-10 h-full"><pre className="bg-black border border-[#2f2f2f] p-8 rounded-3xl h-full overflow-y-auto text-[11px] font-mono text-emerald-500/80 custom-scrollbar shadow-inner leading-relaxed">{logs}</pre></div>;
+            return <div className="p-10 h-full"><pre className="bg-black border border-[#2f2f2f] p-8 rounded-3xl h-full overflow-y-auto text-[11px] font-mono text-emerald-500/80 custom-scrollbar leading-relaxed">{logs}</pre></div>;
         };
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
