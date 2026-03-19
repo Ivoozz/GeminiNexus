@@ -7,6 +7,7 @@ import os
 import logging
 import time
 import secrets
+import traceback
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from dotenv import load_dotenv, set_key
@@ -14,8 +15,12 @@ from .gemini_bridge import ask_gemini
 import subprocess
 
 # Load environment variables
-ENV_FILE = os.path.join(os.path.dirname(__file__), "..", ".env")
+ENV_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
 load_dotenv(ENV_FILE)
+
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger("GeminiNexus")
 
 # Configuration
 SECRET_KEY = os.getenv("SECRET_KEY")
@@ -24,8 +29,6 @@ ALGORITHM = "HS256"
 # Setup hashing & security
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("GeminiNexus")
 
 app = FastAPI(title="GeminiNexus AI Assistant")
 
@@ -54,12 +57,15 @@ class ChatRequest(BaseModel):
 
 # Helper functions
 def get_password_hash():
-    load_dotenv(ENV_FILE)
-    pwd_hash = os.getenv("PASSWORD_HASH")
-    # Check if hash is valid (must start with $2b$ and not be a placeholder)
-    if pwd_hash and pwd_hash.startswith("$2b$"):
-        return pwd_hash
-    return None
+    try:
+        load_dotenv(ENV_FILE)
+        pwd_hash = os.getenv("PASSWORD_HASH")
+        if pwd_hash and pwd_hash.startswith("$2b$"):
+            return pwd_hash
+        return None
+    except Exception as e:
+        logger.error(f"Fout bij lezen password hash: {str(e)}")
+        return None
 
 def create_access_token(data: dict):
     to_encode = data.copy()
@@ -80,57 +86,81 @@ async def root():
 
 @app.get("/api/setup-status")
 async def setup_status():
-    """Checks if the app has been onboarded (valid password hash set)."""
+    """Checks if the app has been onboarded."""
     return {"onboarded": get_password_hash() is not None}
 
 @app.post("/api/onboard")
 async def onboard(request: OnboardRequest):
     """Initial setup of the application."""
-    if get_password_hash():
-        raise HTTPException(status_code=400, detail="App is al geconfigureerd.")
-    
-    # Generate password hash
-    hashed_pwd = pwd_context.hash(request.password)
-    
-    # Update .env file
-    if not os.path.exists(ENV_FILE):
-        with open(ENV_FILE, "w") as f:
-            f.write(f"SECRET_KEY={secrets.token_urlsafe(32)}\n")
-    
-    set_key(ENV_FILE, "PASSWORD_HASH", hashed_pwd)
-    
-    # Telegram
-    if request.telegram_token: set_key(ENV_FILE, "TELEGRAM_TOKEN", request.telegram_token)
-    if request.telegram_chat_id: set_key(ENV_FILE, "TELEGRAM_CHAT_ID", request.telegram_chat_id)
-    
-    # SMTP & IMAP
-    if request.smtp_host: set_key(ENV_FILE, "SMTP_HOST", request.smtp_host)
-    if request.smtp_port: set_key(ENV_FILE, "SMTP_PORT", request.smtp_port)
-    if request.smtp_user: set_key(ENV_FILE, "SMTP_USER", request.smtp_user)
-    if request.smtp_pass: set_key(ENV_FILE, "SMTP_PASS", request.smtp_pass)
-    if request.imap_host: set_key(ENV_FILE, "IMAP_HOST", request.imap_host)
-    if request.imap_port: set_key(ENV_FILE, "IMAP_PORT", request.imap_port)
-    if request.imap_user: set_key(ENV_FILE, "IMAP_USER", request.imap_user)
-    if request.imap_pass: set_key(ENV_FILE, "IMAP_PASS", request.imap_pass)
-    
-    return {"status": "success"}
+    logger.info("Onboarding gestart...")
+    try:
+        if get_password_hash():
+            raise HTTPException(status_code=400, detail="App is al geconfigureerd.")
+        
+        # Generate password hash
+        logger.info("Wachtwoord hashen...")
+        hashed_pwd = pwd_context.hash(request.password)
+        
+        # Update .env file
+        logger.info(f"Gegevens opslaan in {ENV_FILE}...")
+        
+        if not os.path.exists(ENV_FILE):
+            with open(ENV_FILE, "w") as f:
+                f.write(f"SECRET_KEY={secrets.token_urlsafe(32)}\n")
+        
+        # Helper function to set keys safely
+        def safe_set_key(key, value):
+            if value:
+                try:
+                    set_key(ENV_FILE, key, str(value))
+                except Exception as e:
+                    logger.error(f"Fout bij opslaan {key}: {str(e)}")
+                    raise e
+
+        safe_set_key("PASSWORD_HASH", hashed_pwd)
+        safe_set_key("TELEGRAM_TOKEN", request.telegram_token)
+        safe_set_key("TELEGRAM_CHAT_ID", request.telegram_chat_id)
+        safe_set_key("SMTP_HOST", request.smtp_host)
+        safe_set_key("SMTP_PORT", request.smtp_port)
+        safe_set_key("SMTP_USER", request.smtp_user)
+        safe_set_key("SMTP_PASS", request.smtp_pass)
+        safe_set_key("IMAP_HOST", request.imap_host)
+        safe_set_key("IMAP_PORT", request.imap_port)
+        safe_set_key("IMAP_USER", request.imap_user)
+        safe_set_key("IMAP_PASS", request.imap_pass)
+        
+        logger.info("Onboarding succesvol afgerond.")
+        return {"status": "success"}
+
+    except Exception as e:
+        error_detail = traceback.format_exc()
+        logger.error(f"CRITICAL ONBOARDING ERROR: {error_detail}")
+        raise HTTPException(status_code=500, detail=f"Onboarding fout: {str(e)}")
 
 @app.post("/api/login")
 async def login(request: LoginRequest):
-    current_hash = get_password_hash()
-    if not current_hash:
-        raise HTTPException(status_code=400, detail="Voer eerst de onboarding uit.")
-    
-    if pwd_context.verify(request.password, current_hash):
-        token = create_access_token(data={"sub": "admin"})
-        return {"access_token": token, "token_type": "bearer"}
-    
-    raise HTTPException(status_code=401, detail="Onjuist wachtwoord")
+    try:
+        current_hash = get_password_hash()
+        if not current_hash:
+            raise HTTPException(status_code=400, detail="Voer eerst de onboarding uit.")
+        
+        if pwd_context.verify(request.password, current_hash):
+            token = create_access_token(data={"sub": "admin"})
+            return {"access_token": token, "token_type": "bearer"}
+        
+        raise HTTPException(status_code=401, detail="Onjuist wachtwoord")
+    except Exception as e:
+        logger.error(f"Login fout: {str(e)}")
+        raise HTTPException(status_code=500, detail="Login mislukt.")
 
 @app.post("/api/chat")
 async def chat(request: ChatRequest, user: dict = Depends(get_current_user)):
-    ai_response = ask_gemini(request.message)
-    return {"response": ai_response}
+    try:
+        ai_response = ask_gemini(request.message)
+        return {"response": ai_response}
+    except Exception as e:
+        logger.error(f"AI Fout: {str(e)}")
+        return {"response": f"Er is een fout opgetreden bij de AI: {str(e)}"}
 
 @app.get("/api/status")
 async def system_status(user: dict = Depends(get_current_user)):
