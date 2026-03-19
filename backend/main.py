@@ -8,8 +8,8 @@ import logging
 import time
 import secrets
 import traceback
+import bcrypt
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from dotenv import load_dotenv, set_key
 from .gemini_bridge import ask_gemini
 import subprocess
@@ -26,9 +26,18 @@ logger = logging.getLogger("GeminiNexus")
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = "HS256"
 
-# Setup hashing & security
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Security helpers (Direct bcrypt, avoiding passlib bugs)
 security = HTTPBearer()
+
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    try:
+        return bcrypt.checkpw(plain_password.encode(), hashed_password.encode())
+    except Exception as e:
+        logger.error(f"Wachtwoord verificatie fout: {str(e)}")
+        return False
 
 app = FastAPI(title="GeminiNexus AI Assistant")
 
@@ -86,29 +95,22 @@ async def root():
 
 @app.get("/api/setup-status")
 async def setup_status():
-    """Checks if the app has been onboarded."""
     return {"onboarded": get_password_hash() is not None}
 
 @app.post("/api/onboard")
 async def onboard(request: OnboardRequest):
-    """Initial setup of the application."""
-    logger.info("Onboarding gestart...")
+    logger.info("Onboarding gestart (Direct Bcrypt)...")
     try:
         if get_password_hash():
             raise HTTPException(status_code=400, detail="App is al geconfigureerd.")
         
-        # Generate password hash
-        logger.info("Wachtwoord hashen...")
-        hashed_pwd = pwd_context.hash(request.password)
-        
-        # Update .env file
-        logger.info(f"Gegevens opslaan in {ENV_FILE}...")
+        # Generate password hash via direct bcrypt
+        hashed_pwd = hash_password(request.password)
         
         if not os.path.exists(ENV_FILE):
             with open(ENV_FILE, "w") as f:
                 f.write(f"SECRET_KEY={secrets.token_urlsafe(32)}\n")
         
-        # Helper function to set keys safely
         def safe_set_key(key, value):
             if value:
                 try:
@@ -133,8 +135,7 @@ async def onboard(request: OnboardRequest):
         return {"status": "success"}
 
     except Exception as e:
-        error_detail = traceback.format_exc()
-        logger.error(f"CRITICAL ONBOARDING ERROR: {error_detail}")
+        logger.error(f"CRITICAL ONBOARDING ERROR: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Onboarding fout: {str(e)}")
 
 @app.post("/api/login")
@@ -144,7 +145,7 @@ async def login(request: LoginRequest):
         if not current_hash:
             raise HTTPException(status_code=400, detail="Voer eerst de onboarding uit.")
         
-        if pwd_context.verify(request.password, current_hash):
+        if verify_password(request.password, current_hash):
             token = create_access_token(data={"sub": "admin"})
             return {"access_token": token, "token_type": "bearer"}
         
@@ -160,7 +161,7 @@ async def chat(request: ChatRequest, user: dict = Depends(get_current_user)):
         return {"response": ai_response}
     except Exception as e:
         logger.error(f"AI Fout: {str(e)}")
-        return {"response": f"Er is een fout opgetreden bij de AI: {str(e)}"}
+        return {"response": f"Fout: {str(e)}"}
 
 @app.get("/api/status")
 async def system_status(user: dict = Depends(get_current_user)):
