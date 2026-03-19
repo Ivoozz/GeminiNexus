@@ -37,6 +37,15 @@ class OnboardRequest(BaseModel):
     password: str
     telegram_token: str = ""
     telegram_chat_id: str = ""
+    # E-mail settings
+    smtp_host: str = ""
+    smtp_port: str = ""
+    smtp_user: str = ""
+    smtp_pass: str = ""
+    imap_host: str = ""
+    imap_port: str = ""
+    imap_user: str = ""
+    imap_pass: str = ""
 
 class LoginRequest(BaseModel):
     password: str
@@ -68,42 +77,48 @@ async def root():
 
 @app.get("/api/setup-status")
 async def setup_status():
-    """Checks if the app has been onboarded (password set)."""
     return {"onboarded": get_password_hash() is not None}
 
 @app.post("/api/onboard")
 async def onboard(request: OnboardRequest):
-    """Initial setup of the application."""
     if get_password_hash():
         raise HTTPException(status_code=400, detail="App is al geconfigureerd.")
     
-    # Generate password hash
     hashed_pwd = pwd_context.hash(request.password)
     
-    # Update .env file
     if not os.path.exists(ENV_FILE):
         with open(ENV_FILE, "w") as f:
             f.write(f"SECRET_KEY={secrets.token_urlsafe(32)}\n")
     
+    # Save all fields to .env
     set_key(ENV_FILE, "PASSWORD_HASH", hashed_pwd)
-    if request.telegram_token:
-        set_key(ENV_FILE, "TELEGRAM_TOKEN", request.telegram_token)
-    if request.telegram_chat_id:
-        set_key(ENV_FILE, "TELEGRAM_CHAT_ID", request.telegram_chat_id)
     
-    return {"status": "success", "message": "Onboarding voltooid. Herstart de service of log in."}
+    # Telegram
+    if request.telegram_token: set_key(ENV_FILE, "TELEGRAM_TOKEN", request.telegram_token)
+    if request.telegram_chat_id: set_key(ENV_FILE, "TELEGRAM_CHAT_ID", request.telegram_chat_id)
+    
+    # SMTP
+    if request.smtp_host: set_key(ENV_FILE, "SMTP_HOST", request.smtp_host)
+    if request.smtp_port: set_key(ENV_FILE, "SMTP_PORT", request.smtp_port)
+    if request.smtp_user: set_key(ENV_FILE, "SMTP_USER", request.smtp_user)
+    if request.smtp_pass: set_key(ENV_FILE, "SMTP_PASS", request.smtp_pass)
+    
+    # IMAP
+    if request.imap_host: set_key(ENV_FILE, "IMAP_HOST", request.imap_host)
+    if request.imap_port: set_key(ENV_FILE, "IMAP_PORT", request.imap_port)
+    if request.imap_user: set_key(ENV_FILE, "IMAP_USER", request.imap_user)
+    if request.imap_pass: set_key(ENV_FILE, "IMAP_PASS", request.imap_pass)
+    
+    return {"status": "success"}
 
 @app.post("/api/login")
 async def login(request: LoginRequest):
     current_hash = get_password_hash()
-    if not current_hash:
-        raise HTTPException(status_code=400, detail="Voer eerst de onboarding uit.")
+    if not current_hash or not pwd_context.verify(request.password, current_hash):
+        raise HTTPException(status_code=401, detail="Onjuist wachtwoord")
     
-    if pwd_context.verify(request.password, current_hash):
-        token = create_access_token(data={"sub": "admin"})
-        return {"access_token": token, "token_type": "bearer"}
-    
-    raise HTTPException(status_code=401, detail="Onjuist wachtwoord")
+    token = create_access_token(data={"sub": "admin"})
+    return {"access_token": token, "token_type": "bearer"}
 
 @app.post("/api/chat")
 async def chat(request: ChatRequest, user: dict = Depends(get_current_user)):

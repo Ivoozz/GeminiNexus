@@ -26,94 +26,92 @@
         const { useState, useEffect, useRef } = React;
 
         const App = () => {
-            const [isOnboarded, setIsOnboarded] = useState(null);
+            const [view, setView] = useState('loading');
             const [token, setToken] = useState(localStorage.getItem('nexus_token'));
-            const [view, setView] = useState('loading'); // loading, setup, login, chat
 
             useEffect(() => {
-                checkSetup();
-            }, []);
-
-            const checkSetup = async () => {
-                try {
-                    const res = await axios.get('/api/setup-status');
-                    setIsOnboarded(res.data.onboarded);
+                axios.get('/api/setup-status').then(res => {
                     if (!res.data.onboarded) setView('setup');
                     else if (!token) setView('login');
                     else setView('chat');
-                } catch (e) { console.error(e); }
-            };
-
-            const onSetupComplete = () => {
-                setIsOnboarded(true);
-                setView('login');
-            };
-
-            const onLoginComplete = (newToken) => {
-                setToken(newToken);
-                localStorage.setItem('nexus_token', newToken);
-                setView('chat');
-            };
+                });
+            }, []);
 
             if (view === 'loading') return React.createElement('div', { className: 'h-screen flex items-center justify-center' }, 'Laden...');
-            if (view === 'setup') return React.createElement(SetupWizard, { onComplete: onSetupComplete });
-            if (view === 'login') return React.createElement(LoginView, { onComplete: onLoginComplete });
+            if (view === 'setup') return React.createElement(SetupWizard, { onComplete: () => setView('login') });
+            if (view === 'login') return React.createElement(LoginView, { onComplete: (t) => { setToken(t); localStorage.setItem('nexus_token', t); setView('chat'); } });
             return React.createElement(ChatView, { token, onLogout: () => { setToken(null); localStorage.removeItem('nexus_token'); setView('login'); } });
         };
 
         const SetupWizard = ({ onComplete }) => {
             const [step, setStep] = useState(1);
-            const [formData, setFormData] = useState({ password: '', telegram_token: '', telegram_chat_id: '' });
+            const [formData, setFormData] = useState({ 
+                password: '', telegram_token: '', telegram_chat_id: '',
+                smtp_host: '', smtp_port: '587', smtp_user: '', smtp_pass: '',
+                imap_host: '', imap_port: '993', imap_user: '', imap_pass: ''
+            });
             const [loading, setLoading] = useState(false);
 
-            const handleSubmit = async (e) => {
-                e.preventDefault();
+            const submit = async () => {
                 setLoading(true);
-                try {
-                    await axios.post('/api/onboard', formData);
-                    onComplete();
-                } catch (err) { alert('Fout bij onboarding: ' + err.response?.data?.detail); }
+                try { await axios.post('/api/onboard', formData); onComplete(); }
+                catch (e) { alert('Fout: ' + e.response?.data?.detail); }
                 finally { setLoading(false); }
             };
 
-            return React.createElement('div', { className: 'h-screen flex items-center justify-center p-4 bg-slate-900' },
-                React.createElement('div', { className: 'bg-slate-800 p-8 rounded-3xl border border-slate-700 w-full max-w-lg shadow-2xl' },
-                    React.createElement('div', { className: 'mb-8' },
-                        React.createElement('h1', { className: 'text-3xl font-bold mb-2' }, 'Welkom bij GeminiNexus'),
-                        React.createElement('p', { className: 'text-slate-400' }, 'Laten we je persoonlijke AI assistent configureren.')
+            const Input = ({ label, field, type="text", placeholder="" }) => React.createElement('div', { className: 'space-y-1' },
+                React.createElement('label', { className: 'text-xs font-semibold text-slate-400 uppercase' }, label),
+                React.createElement('input', {
+                    type, placeholder, value: formData[field],
+                    className: 'w-full bg-slate-900 border border-slate-700 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500',
+                    onChange: e => setFormData({...formData, [field]: e.target.value})
+                })
+            );
+
+            return React.createElement('div', { className: 'h-screen flex items-center justify-center p-4 bg-slate-950 overflow-y-auto' },
+                React.createElement('div', { className: 'bg-slate-800 p-8 rounded-3xl border border-slate-700 w-full max-w-lg shadow-2xl my-auto' },
+                    React.createElement('div', { className: 'mb-8 flex justify-between items-center' },
+                        React.createElement('div', null,
+                            React.createElement('h1', { className: 'text-2xl font-bold' }, 'GeminiNexus Setup'),
+                            React.createElement('p', { className: 'text-sm text-slate-400' }, `Stap ${step} van 3`)
+                        ),
+                        React.createElement('div', { className: 'flex space-x-1' }, [1,2,3].map(i => 
+                            React.createElement('div', { key: i, className: `w-2 h-2 rounded-full ${step >= i ? 'bg-blue-500' : 'bg-slate-600'}` })
+                        ))
                     ),
+
                     step === 1 && React.createElement('div', { className: 'wizard-step space-y-4' },
-                        React.createElement('label', { className: 'block font-medium' }, 'Stel je beheerderswachtwoord in'),
-                        React.createElement('input', { 
-                            type: 'password', 
-                            className: 'w-full bg-slate-900 border border-slate-700 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500',
-                            placeholder: 'Wachtwoord...',
-                            onChange: e => setFormData({...formData, password: e.target.value})
-                        }),
-                        React.createElement('button', { 
-                            onClick: () => formData.password ? setStep(2) : alert('Wachtwoord is verplicht'),
-                            className: 'w-full bg-blue-600 hover:bg-blue-500 py-3 rounded-xl font-bold transition-all'
-                        }, 'Volgende')
+                        React.createElement(Input, { label: 'Admin Wachtwoord', field: 'password', type: 'password', placeholder: 'Kies een sterk wachtwoord' }),
+                        React.createElement('button', { onClick: () => formData.password ? setStep(2) : alert('Wachtwoord verplicht'), className: 'w-full bg-blue-600 p-4 rounded-xl font-bold' }, 'Volgende')
                     ),
+
                     step === 2 && React.createElement('div', { className: 'wizard-step space-y-4' },
-                        React.createElement('label', { className: 'block font-medium' }, 'Kanalen (Optioneel)'),
-                        React.createElement('input', { 
-                            className: 'w-full bg-slate-900 border border-slate-700 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500',
-                            placeholder: 'Telegram Token...',
-                            onChange: e => setFormData({...formData, telegram_token: e.target.value})
-                        }),
-                        React.createElement('input', { 
-                            className: 'w-full bg-slate-900 border border-slate-700 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500',
-                            placeholder: 'Telegram Chat ID...',
-                            onChange: e => setFormData({...formData, telegram_chat_id: e.target.value})
-                        }),
+                        React.createElement('h2', { className: 'font-bold text-blue-400' }, 'Telegram (Optioneel)'),
+                        React.createElement(Input, { label: 'Bot Token', field: 'telegram_token', placeholder: '123456:ABC...' }),
+                        React.createElement(Input, { label: 'Chat ID', field: 'telegram_chat_id', placeholder: '987654321' }),
                         React.createElement('div', { className: 'flex space-x-3' },
-                            React.createElement('button', { onClick: () => setStep(1), className: 'flex-1 bg-slate-700 py-3 rounded-xl' }, 'Terug'),
-                            React.createElement('button', { 
-                                onClick: handleSubmit, 
-                                disabled: loading,
-                                className: 'flex-[2] bg-blue-600 hover:bg-blue-500 py-3 rounded-xl font-bold'
-                            }, loading ? 'Bezig...' : 'Installatie Voltooien')
+                            React.createElement('button', { onClick: () => setStep(1), className: 'flex-1 bg-slate-700 p-4 rounded-xl' }, 'Terug'),
+                            React.createElement('button', { onClick: () => setStep(3), className: 'flex-1 bg-blue-600 p-4 rounded-xl font-bold' }, 'Volgende')
+                        )
+                    ),
+
+                    step === 3 && React.createElement('div', { className: 'wizard-step space-y-6' },
+                        React.createElement('div', { className: 'space-y-4' },
+                            React.createElement('h2', { className: 'font-bold text-blue-400' }, 'Email / SMTP & IMAP (Optioneel)'),
+                            React.createElement('div', { className: 'grid grid-cols-2 gap-3' },
+                                React.createElement(Input, { label: 'SMTP Host', field: 'smtp_host', placeholder: 'smtp.gmail.com' }),
+                                React.createElement(Input, { label: 'SMTP Port', field: 'smtp_port' })
+                            ),
+                            React.createElement(Input, { label: 'IMAP Host', field: 'imap_host', placeholder: 'imap.gmail.com' }),
+                            React.createElement('div', { className: 'grid grid-cols-2 gap-3' },
+                                React.createElement(Input, { label: 'Email / Gebruiker', field: 'smtp_user', placeholder: 'naam@domein.nl' }),
+                                React.createElement(Input, { label: 'Wachtwoord', field: 'smtp_pass', type: 'password' })
+                            ),
+                            React.createElement('p', { className: 'text-[10px] text-slate-500 italic' }, '* Wachtwoord wordt voor zowel SMTP als IMAP gebruikt als IMAP-veld leeg blijft.')
+                        ),
+                        React.createElement('div', { className: 'flex space-x-3' },
+                            React.createElement('button', { onClick: () => setStep(2), className: 'flex-1 bg-slate-700 p-4 rounded-xl' }, 'Terug'),
+                            React.createElement('button', { onClick: submit, disabled: loading, className: 'flex-1 bg-green-600 p-4 rounded-xl font-bold' }, loading ? 'Bezig...' : 'Afronden')
                         )
                     )
                 )
@@ -123,107 +121,75 @@
         const LoginView = ({ onComplete }) => {
             const [password, setPassword] = useState('');
             const [error, setError] = useState('');
-
-            const handleLogin = async (e) => {
+            const submit = async (e) => {
                 e.preventDefault();
-                try {
-                    const res = await axios.post('/api/login', { password });
-                    onComplete(res.data.access_token);
-                } catch (err) { setError('Onjuist wachtwoord'); }
+                try { const res = await axios.post('/api/login', { password }); onComplete(res.data.access_token); }
+                catch (e) { setError('Onjuist wachtwoord'); }
             };
-
             return React.createElement('div', { className: 'h-screen flex items-center justify-center p-4' },
-                React.createElement('div', { className: 'bg-slate-800 p-8 rounded-3xl border border-slate-700 w-full max-w-md shadow-2xl text-center' },
-                    React.createElement('div', { className: 'bg-blue-600 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-6' }, 
-                        React.createElement('i', { 'data-lucide': 'lock', className: 'text-white w-8 h-8' })
-                    ),
-                    React.createElement('h1', { className: 'text-2xl font-bold mb-6' }, 'GeminiNexus'),
-                    React.createElement('form', { onSubmit: handleLogin, className: 'space-y-4 text-left' },
-                        React.createElement('input', {
-                            type: 'password',
-                            className: 'w-full bg-slate-900 border border-slate-700 rounded-xl p-4 focus:ring-2 focus:ring-blue-500 outline-none',
-                            placeholder: 'Wachtwoord',
-                            onChange: e => setPassword(e.target.value)
-                        }),
+                React.createElement('div', { className: 'bg-slate-800 p-8 rounded-3xl border border-slate-700 w-full max-w-md shadow-2xl' },
+                    React.createElement('h1', { className: 'text-2xl font-bold text-center mb-6' }, 'GeminiNexus'),
+                    React.createElement('form', { onSubmit: submit, className: 'space-y-4' },
+                        React.createElement('input', { type: 'password', className: 'w-full bg-slate-900 border border-slate-700 rounded-xl p-4', placeholder: 'Wachtwoord', onChange: e => setPassword(e.target.value) }),
                         error && React.createElement('p', { className: 'text-red-500 text-sm' }, error),
-                        React.createElement('button', { className: 'w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-xl font-bold transition-all' }, 'Inloggen')
+                        React.createElement('button', { className: 'w-full bg-blue-600 p-4 rounded-xl font-bold' }, 'Inloggen')
                     )
                 )
             );
         };
 
         const ChatView = ({ token, onLogout }) => {
-            const [messages, setMessages] = useState([{ id: 1, role: 'ai', text: 'Welkom terug! Hoe kan ik je vandaag helpen?' }]);
+            const [messages, setMessages] = useState([{ id: 1, role: 'ai', text: 'Assistent klaar voor gebruik.' }]);
             const [input, setInput] = useState('');
             const [loading, setLoading] = useState(false);
             const [status, setStatus] = useState({ disk_usage: '...', memory_usage: '...' });
             const chatEndRef = useRef(null);
 
-            useEffect(() => {
+            useEffect(() => { 
                 fetchStatus();
                 const interval = setInterval(fetchStatus, 30000);
                 return () => clearInterval(interval);
             }, []);
 
-            useEffect(() => {
+            useEffect(() => { 
                 chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
                 lucide.createIcons();
             }, [messages]);
 
-            const fetchStatus = async () => {
-                try {
-                    const res = await axios.get('/api/status', { headers: { Authorization: `Bearer ${token}` } });
-                    setStatus(res.data);
-                } catch (e) { if (e.response?.status === 403) onLogout(); }
-            };
+            const fetchStatus = () => axios.get('/api/status', { headers: { Authorization: `Bearer ${token}` } }).then(res => setStatus(res.data)).catch(e => e.response?.status === 403 && onLogout());
 
-            const send = async (e) => {
+            const send = (e) => {
                 e.preventDefault();
                 if (!input.trim() || loading) return;
-                const userMsg = { id: Date.now(), role: 'user', text: input };
-                setMessages(prev => [...prev, userMsg]);
+                setMessages(prev => [...prev, { id: Date.now(), role: 'user', text: input }]);
+                const currentInput = input;
                 setInput('');
                 setLoading(true);
-                try {
-                    const res = await axios.post('/api/chat', { message: input }, { headers: { Authorization: `Bearer ${token}` } });
-                    setMessages(prev => [...prev, { id: Date.now()+1, role: 'ai', text: res.data.response }]);
-                } catch (e) { setMessages(prev => [...prev, { id: Date.now()+1, role: 'ai', text: 'Fout bij AI communicatie.' }]); }
-                finally { setLoading(false); }
+                axios.post('/api/chat', { message: currentInput }, { headers: { Authorization: `Bearer ${token}` } })
+                    .then(res => setMessages(prev => [...prev, { id: Date.now()+1, role: 'ai', text: res.data.response }]))
+                    .catch(() => setMessages(prev => [...prev, { id: Date.now()+1, role: 'ai', text: 'Fout in AI.' }]))
+                    .finally(() => setLoading(false));
             };
 
             return React.createElement('div', { className: 'flex flex-col h-screen' },
-                React.createElement('header', { className: 'bg-slate-800 border-b border-slate-700 p-4' },
-                    React.createElement('div', { className: 'container mx-auto flex justify-between items-center' },
-                        React.createElement('div', { className: 'flex items-center space-x-2' },
-                            React.createElement('div', { className: 'bg-blue-600 p-1.5 rounded-lg' }, React.createElement('i', { 'data-lucide': 'cpu', className: 'w-5 h-5' })),
-                            React.createElement('h1', { className: 'font-bold' }, 'GeminiNexus')
-                        ),
-                        React.createElement('div', { className: 'flex items-center space-x-4' },
-                            React.createElement('div', { className: 'hidden sm:flex space-x-3 text-xs text-slate-400 font-mono' },
-                                React.createElement('span', null, `DISK: ${status.disk_usage}`),
-                                React.createElement('span', null, `RAM: ${status.memory_usage}`)
-                            ),
-                            React.createElement('button', { onClick: onLogout, className: 'text-slate-400 hover:text-white' }, React.createElement('i', { 'data-lucide': 'log-out', className: 'w-5 h-5' }))
-                        )
+                React.createElement('header', { className: 'bg-slate-800 border-b border-slate-700 p-4 flex justify-between items-center' },
+                    React.createElement('div', { className: 'font-bold' }, 'GeminiNexus'),
+                    React.createElement('div', { className: 'flex items-center space-x-4' },
+                        React.createElement('div', { className: 'hidden sm:block text-[10px] text-slate-500 font-mono uppercase' }, `D: ${status.disk_usage} | R: ${status.memory_usage}`),
+                        React.createElement('button', { onClick: onLogout, className: 'text-slate-400' }, React.createElement('i', { 'data-lucide': 'log-out', className: 'w-4 h-4' }))
                     )
                 ),
                 React.createElement('main', { className: 'flex-1 container mx-auto max-w-4xl p-4 flex flex-col overflow-hidden' },
                     React.createElement('div', { className: 'flex-1 overflow-y-auto mb-4 space-y-4 pr-2 custom-scrollbar' },
                         messages.map(msg => React.createElement('div', { key: msg.id, className: `flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}` },
-                            React.createElement('div', { className: `max-w-[85%] p-4 rounded-2xl ${msg.role === 'user' ? 'bg-blue-600' : 'bg-slate-800 border border-slate-700'}` },
-                                React.createElement('p', { className: 'whitespace-pre-wrap text-sm leading-relaxed' }, msg.text)
-                            )
+                            React.createElement('div', { className: `max-w-[85%] p-3 rounded-2xl text-sm ${msg.role === 'user' ? 'bg-blue-600' : 'bg-slate-800 border border-slate-700'}` }, msg.text)
                         )),
-                        loading && React.createElement('div', { className: 'animate-pulse bg-slate-800 p-4 rounded-xl w-24' }, '...'),
+                        loading && React.createElement('div', { className: 'bg-slate-800 p-3 rounded-xl w-16 text-center animate-pulse text-xs' }, '...'),
                         React.createElement('div', { ref: chatEndRef })
                     ),
                     React.createElement('form', { onSubmit: send, className: 'relative' },
-                        React.createElement('input', { 
-                            type: 'text', value: input, onChange: e => setInput(e.target.value),
-                            placeholder: 'Typ een vraag...', 
-                            className: 'w-full bg-slate-800 border border-slate-700 rounded-2xl px-5 py-4 outline-none focus:ring-2 focus:ring-blue-500'
-                        }),
-                        React.createElement('button', { className: 'absolute right-3 top-3 bg-blue-600 p-2 rounded-xl' }, React.createElement('i', { 'data-lucide': 'send', className: 'w-5 h-5' }))
+                        React.createElement('input', { type: 'text', value: input, onChange: e => setInput(e.target.value), placeholder: 'Bericht...', className: 'w-full bg-slate-800 border border-slate-700 rounded-2xl p-4 pr-12 outline-none focus:ring-1 focus:ring-blue-500' }),
+                        React.createElement('button', { className: 'absolute right-3 top-3 bg-blue-600 p-2 rounded-xl' }, React.createElement('i', { 'data-lucide': 'send', className: 'w-4 h-4' }))
                     )
                 )
             );
@@ -231,7 +197,6 @@
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(React.createElement(App));
-        setTimeout(() => lucide.createIcons(), 500);
     </script>
 </body>
 </html>
